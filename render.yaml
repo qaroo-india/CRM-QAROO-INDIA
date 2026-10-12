@@ -1,0 +1,71 @@
+# Render Blueprint for the API (https://render.com/docs/blueprint-spec).
+# Deploy: Render dashboard -> New -> Blueprint -> pick this repository.
+# Values marked `sync: false` are asked for once in the dashboard; they are
+# never stored in this file. See docs/DEPLOYMENT.md before the first deploy.
+services:
+  - type: web
+    name: institute-os-api
+    runtime: node
+    # SQLite needs a persistent disk, and disks need a paid instance.
+    # On a free instance every deploy or restart would ERASE the database.
+    plan: starter
+    region: singapore
+    # One instance only: SQLite is single-writer and the report scheduler
+    # must not run twice.
+    numInstances: 1
+    buildCommand: npm ci --workspace=server --workspace=shared --include-workspace-root --include=dev && npm run build --workspace=server
+    # Applies pending migrations, ensures reference data + the owner account,
+    # then starts the API. All three steps are safe to repeat on every deploy.
+    startCommand: npm run start:prod --workspace=server
+    healthCheckPath: /api/v1/health
+    disk:
+      name: institute-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      # Vercel's proxy + Render's load balancer = 2 hops in front of the app.
+      # Use 1 if browsers call this service directly (no Vercel rewrite).
+      - key: TRUST_PROXY
+        value: "2"
+      - key: DATABASE_URL
+        value: /var/data/institute.db
+      - key: STORAGE_DIR
+        value: /var/data/storage
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: CLIENT_URL
+        sync: false # e.g. https://your-app.vercel.app
+      - key: APP_URL
+        sync: false # same as CLIENT_URL; used in emailed links
+      - key: OWNER_EMAIL
+        sync: false
+      - key: OWNER_NAME
+        sync: false
+      - key: OWNER_INITIAL_PASSWORD
+        sync: false # 10+ characters; you must change it at first sign-in
+      - key: INSTITUTE_NAME
+        sync: false
+      - key: INSTITUTE_TIMEZONE
+        value: Asia/Kolkata
+      - key: EMAIL_TRANSPORT
+        value: smtp
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURE
+        value: "false"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: EMAIL_FROM
+        sync: false # e.g. Institute Reports <reports@yourdomain.com>
+      - key: JOBS_ENABLED
+        value: "true"

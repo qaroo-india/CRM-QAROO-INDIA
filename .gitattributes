@@ -1,0 +1,7 @@
+# Normalise line endings so builds (and the CSP hash of the inline theme script
+# in client/index.html) are identical on every machine.
+* text=auto eol=lf
+*.png binary
+*.ttf binary
+*.ico binary
+*.db binary

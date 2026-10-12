@@ -1,0 +1,358 @@
+/*
+ * Institute OS design tokens.
+ *
+ * Two layers:
+ *   1. --ims-* raw tokens, redefined per theme on [data-theme].
+ *   2. @theme inline maps them to Tailwind names (bg-surface, text-fg-muted...)
+ *      so components never hard-code a colour and both themes stay in sync.
+ *
+ * Colours are OKLCH: equal lightness steps look equally different to the eye,
+ * which keeps the dark and light ramps balanced. Every text/background pair
+ * used for body copy is checked for WCAG AA contrast (see docs/DESIGN-SYSTEM.md).
+ */
+
+@import 'tailwindcss';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
+
+/* Dark mode follows the data-theme attribute on <html>, set by ThemeProvider. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* ------------------------------------------------------------------ *
+ * Light theme (alternative)
+ * ------------------------------------------------------------------ */
+:root,
+[data-theme='light'] {
+  color-scheme: light;
+
+  --ims-canvas: oklch(0.985 0.004 255);
+  --ims-grid-line: oklch(0.92 0.012 255);
+  --ims-surface: oklch(1 0 0);
+  --ims-surface-raised: oklch(0.975 0.005 255);
+  --ims-surface-sunken: oklch(0.955 0.008 255);
+  --ims-border: oklch(0.9 0.012 255);
+  --ims-border-strong: oklch(0.8 0.018 255);
+
+  --ims-fg: oklch(0.23 0.03 262);
+  --ims-fg-muted: oklch(0.45 0.025 262);
+  --ims-fg-subtle: oklch(0.53 0.022 262);
+
+  --ims-primary: oklch(0.5 0.115 222);
+  --ims-primary-fg: oklch(0.99 0 0);
+  --ims-primary-soft: oklch(0.95 0.03 215);
+  --ims-accent: oklch(0.5 0.19 262);
+  --ims-violet: oklch(0.5 0.2 295);
+
+  --ims-success: oklch(0.49 0.11 160);
+  --ims-success-soft: oklch(0.955 0.04 160);
+  --ims-warning: oklch(0.52 0.12 62);
+  --ims-warning-soft: oklch(0.96 0.05 85);
+  --ims-danger: oklch(0.52 0.19 27);
+  --ims-danger-soft: oklch(0.96 0.03 25);
+
+  --ims-ring: oklch(0.58 0.13 222);
+
+  /* Chart series: validated categorical order (dataviz validate_palette.js,
+     light vs #ffffff: all hard gates pass; slots 3-5 < 3:1 so every chart
+     ships a table view). Assign in this order, never cycled. */
+  --ims-series-1: #2a78d6;
+  --ims-series-2: #eb6834;
+  --ims-series-3: #1baf7a;
+  --ims-series-4: #eda100;
+  --ims-series-5: #e87ba4;
+  --ims-series-6: #008300;
+  --ims-series-7: #6250d6;
+  --ims-series-8: #e34948;
+  --ims-chart-grid: #e3e7ed;
+  --ims-chart-deemphasis: #a3aab5;
+  --ims-shadow:
+    0 1px 2px oklch(0.2 0.03 262 / 0.06), 0 10px 28px -14px oklch(0.2 0.03 262 / 0.16);
+  --ims-glow: 0 0 0 1px oklch(0.5 0.115 222 / 0.18);
+  --ims-backdrop-glow: oklch(0.85 0.06 222 / 0.35);
+}
+
+/* ------------------------------------------------------------------ *
+ * Dark theme (primary design direction)
+ * ------------------------------------------------------------------ */
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --ims-canvas: oklch(0.155 0.028 262);
+  --ims-grid-line: oklch(0.22 0.03 262);
+  --ims-surface: oklch(0.195 0.028 262);
+  --ims-surface-raised: oklch(0.235 0.03 262);
+  --ims-surface-sunken: oklch(0.172 0.027 262);
+  --ims-border: oklch(0.29 0.03 262);
+  --ims-border-strong: oklch(0.37 0.035 262);
+
+  --ims-fg: oklch(0.965 0.006 255);
+  --ims-fg-muted: oklch(0.75 0.02 258);
+  --ims-fg-subtle: oklch(0.65 0.022 258);
+
+  --ims-primary: oklch(0.82 0.13 205);
+  --ims-primary-fg: oklch(0.18 0.03 262);
+  --ims-primary-soft: oklch(0.82 0.13 205 / 0.12);
+  --ims-accent: oklch(0.72 0.15 258);
+  --ims-violet: oklch(0.74 0.14 295);
+
+  --ims-success: oklch(0.79 0.15 162);
+  --ims-success-soft: oklch(0.79 0.15 162 / 0.12);
+  --ims-warning: oklch(0.84 0.14 80);
+  --ims-warning-soft: oklch(0.84 0.14 80 / 0.12);
+  --ims-danger: oklch(0.72 0.17 25);
+  --ims-danger-soft: oklch(0.72 0.17 25 / 0.13);
+
+  --ims-ring: oklch(0.82 0.13 205);
+
+  /* Same eight hues stepped for the dark surface (validated vs #0e1522:
+     all gates pass, all slots >= 3:1). */
+  --ims-series-1: #3987e5;
+  --ims-series-2: #d95926;
+  --ims-series-3: #199e70;
+  --ims-series-4: #c98500;
+  --ims-series-5: #d55181;
+  --ims-series-6: #008300;
+  --ims-series-7: #9085e9;
+  --ims-series-8: #e66767;
+  --ims-chart-grid: #232b3a;
+  --ims-chart-deemphasis: #4b5567;
+  --ims-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.04), 0 14px 36px -18px oklch(0 0 0 / 0.7);
+  --ims-glow:
+    0 0 0 1px oklch(0.82 0.13 205 / 0.22), 0 0 28px -8px oklch(0.82 0.13 205 / 0.35);
+  --ims-backdrop-glow: oklch(0.45 0.12 240 / 0.22);
+}
+
+/* ------------------------------------------------------------------ *
+ * Tailwind mapping
+ * ------------------------------------------------------------------ */
+@theme inline {
+  --color-canvas: var(--ims-canvas);
+  --color-surface: var(--ims-surface);
+  --color-surface-raised: var(--ims-surface-raised);
+  --color-surface-sunken: var(--ims-surface-sunken);
+  --color-border: var(--ims-border);
+  --color-border-strong: var(--ims-border-strong);
+
+  --color-fg: var(--ims-fg);
+  --color-fg-muted: var(--ims-fg-muted);
+  --color-fg-subtle: var(--ims-fg-subtle);
+
+  --color-primary: var(--ims-primary);
+  --color-primary-fg: var(--ims-primary-fg);
+  --color-primary-soft: var(--ims-primary-soft);
+  --color-accent: var(--ims-accent);
+  --color-violet: var(--ims-violet);
+
+  --color-success: var(--ims-success);
+  --color-success-soft: var(--ims-success-soft);
+  --color-warning: var(--ims-warning);
+  --color-warning-soft: var(--ims-warning-soft);
+  --color-danger: var(--ims-danger);
+  --color-danger-soft: var(--ims-danger-soft);
+  --color-ring: var(--ims-ring);
+
+  --color-series-1: var(--ims-series-1);
+  --color-series-2: var(--ims-series-2);
+  --color-series-3: var(--ims-series-3);
+  --color-series-4: var(--ims-series-4);
+  --color-series-5: var(--ims-series-5);
+  --color-series-6: var(--ims-series-6);
+  --color-series-7: var(--ims-series-7);
+  --color-series-8: var(--ims-series-8);
+  --color-chart-grid: var(--ims-chart-grid);
+  --color-chart-deemphasis: var(--ims-chart-deemphasis);
+
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  --shadow-card: var(--ims-shadow);
+  --shadow-glow: var(--ims-glow);
+
+  --radius-card: 1rem;
+  --radius-control: 0.625rem;
+
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --animate-pulse-ring: pulse-ring 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-fade-up: fade-up 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-overlay-in: overlay-in 0.18s ease-out both;
+  --animate-overlay-out: overlay-out 0.14s ease-in both;
+  --animate-dialog-in: dialog-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-dialog-out: dialog-out 0.14s ease-in both;
+  --animate-drawer-in: drawer-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-drawer-out: drawer-out 0.18s ease-in both;
+  --animate-drawer-left-in: drawer-left-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-drawer-left-out: drawer-left-out 0.18s ease-in both;
+  --animate-pop-in: pop-in 0.16s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-pop-out: pop-out 0.1s ease-in both;
+
+  @keyframes overlay-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes overlay-out {
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes dialog-in {
+    from {
+      opacity: 0;
+      transform: translate(-50%, -48%) scale(0.97);
+    }
+  }
+  @keyframes dialog-out {
+    to {
+      opacity: 0;
+      transform: translate(-50%, -48%) scale(0.97);
+    }
+  }
+  @keyframes drawer-in {
+    from {
+      transform: translateX(100%);
+    }
+  }
+  @keyframes drawer-out {
+    to {
+      transform: translateX(100%);
+    }
+  }
+  @keyframes drawer-left-in {
+    from {
+      transform: translateX(-100%);
+    }
+  }
+  @keyframes drawer-left-out {
+    to {
+      transform: translateX(-100%);
+    }
+  }
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px) scale(0.98);
+    }
+  }
+  @keyframes pop-out {
+    to {
+      opacity: 0;
+      transform: scale(0.98);
+    }
+  }
+
+  @keyframes pulse-ring {
+    0% {
+      transform: scale(1);
+      opacity: 0.55;
+    }
+    70%,
+    100% {
+      transform: scale(2.6);
+      opacity: 0;
+    }
+  }
+
+  @keyframes shimmer {
+    from {
+      background-position: -200% 0;
+    }
+    to {
+      background-position: 200% 0;
+    }
+  }
+
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Base
+ * ------------------------------------------------------------------ */
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--color-border);
+  }
+
+  html {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    min-height: 100dvh;
+    background-color: var(--color-canvas);
+    color: var(--color-fg);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: color-mix(in oklch, var(--color-primary) 32%, transparent);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Signature utilities
+ * ------------------------------------------------------------------ */
+
+/* Faint blueprint grid fading out from the top: the "control centre" cue,
+   kept quiet enough that it never competes with data. */
+@utility bg-grid {
+  background-image:
+    linear-gradient(to right, var(--ims-grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--ims-grid-line) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 25%, transparent 75%);
+}
+
+@utility bg-backdrop-glow {
+  background: radial-gradient(
+    ellipse 70% 45% at 50% -5%,
+    var(--ims-backdrop-glow),
+    transparent 70%
+  );
+}
+
+/* Loading placeholder sweep, for skeletons. */
+@utility skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-raised) 0%,
+    var(--color-border) 50%,
+    var(--color-surface-raised) 100%
+  );
+  background-size: 200% 100%;
+  animation: var(--animate-shimmer);
+}
+
+/* ------------------------------------------------------------------ *
+ * Accessibility: honour the OS "reduce motion" setting everywhere.
+ * ------------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,45 @@
+# dependencies
+node_modules/
+.npm
+
+# environment -- never commit real credentials
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# build output
+dist/
+build/
+*.tsbuildinfo
+
+# database (local SQLite data must never be committed)
+server/data/*.db
+server/data/*.db-shm
+server/data/*.db-wal
+server/data/*.sqlite*
+server/data/backups/
+
+# generated reports / uploads
+server/storage/
+server/storage-test/
+server/uploads/
+
+# logs
+logs/
+*.log
+npm-debug.log*
+
+# test + coverage
+coverage/
+.vitest/
+
+# editors / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# reference project archive (contains its own .env) -- never commit
+nexus-academy.zip
