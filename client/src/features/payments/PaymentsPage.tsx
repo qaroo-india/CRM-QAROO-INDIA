@@ -76,7 +76,7 @@ export function PaymentsPage() {
         actions={auth.can('payments:write') && <Button onClick={openNew}><Plus aria-hidden className="size-4" /> Record payment</Button>}
       />
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="stagger mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Gross collections" value={s ? moneyCompact(s.grossMinor) : '—'} icon={Receipt} loading={payments.isPending} stale={payments.isFetching} hint="Succeeded incoming receipts in the filtered period. Excludes reversed receipts." />
         <StatCard label="Refunds" value={s ? moneyCompact(s.refundsMinor) : '—'} icon={Undo2} loading={payments.isPending} stale={payments.isFetching} hint="Money paid back to students, shown separately from collections." />
         <StatCard label="Net collections" value={s ? moneyCompact(s.netMinor) : '—'} loading={payments.isPending} stale={payments.isFetching} hint="Gross collections minus refunds." />

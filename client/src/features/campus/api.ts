@@ -30,10 +30,12 @@ import type {
   TaskDto,
 } from '@ims/shared';
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { useAuth } from '@/auth/AuthProvider';
 import { api, ApiRequestError, toQuery } from '@/lib/api';
 import { toastError } from '@/lib/forms';
+import { useCourses } from '../shared/hooks';
 
 /** A write that refreshes the given caches and confirms with a toast. */
 export function useAction<V, R = unknown>(fn: (v: V) => Promise<R>, options: { invalidate: QueryKey[]; success?: string | ((r: R) => string); onDone?: (r: R) => void; silentErrors?: boolean }) {
@@ -69,6 +71,24 @@ export function useFieldErrors() {
 
 export function useMyBatches() {
   return useQuery({ queryKey: ['batches', 'list', { mine: true }], queryFn: () => api.get<Paginated<BatchDto>>(`/batches${toQuery({ limit: 100, status: 'planned,enrolling,running,completed' })}`), staleTime: 60_000 });
+}
+
+/**
+ * Courses for the teaching pages. Faculty cannot read the course catalogue,
+ * so theirs come from their own batches (which is also the right list for them).
+ */
+export function useTeachingCourses(): { data: { id: string; name: string }[] | undefined; isPending: boolean } {
+  const { accountType } = useAuth();
+  const faculty = accountType === 'faculty';
+  const all = useCourses(false, !faculty);
+  const mine = useMyBatches();
+  const fromBatches = useMemo(() => {
+    if (!mine.data) return undefined;
+    const seen = new Map<string, string>();
+    for (const b of mine.data.items) seen.set(b.courseId, b.courseName);
+    return [...seen].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [mine.data]);
+  return faculty ? { data: fromBatches, isPending: mine.isPending } : { data: all.data, isPending: all.isPending };
 }
 
 /* Schedule and attendance -------------------------------------------------- */
@@ -145,8 +165,8 @@ export function useInventoryItems(query: Record<string, unknown>, enabled = true
   return useQuery({ queryKey: ['inventory', 'items', query], queryFn: () => api.get<InventoryList>(`/inventory/items${toQuery(query)}`), placeholderData: keepPreviousData, enabled });
 }
 
-export function useInventoryRequests(query: Record<string, unknown>) {
-  return useQuery({ queryKey: ['inventory', 'requests', query], queryFn: () => api.get<Paginated<InventoryRequestDto>>(`/inventory/requests${toQuery(query)}`), placeholderData: keepPreviousData });
+export function useInventoryRequests(query: Record<string, unknown>, enabled = true) {
+  return useQuery({ queryKey: ['inventory', 'requests', query], queryFn: () => api.get<Paginated<InventoryRequestDto>>(`/inventory/requests${toQuery(query)}`), placeholderData: keepPreviousData, enabled });
 }
 
 /* Student portal ------------------------------------------------------------ */

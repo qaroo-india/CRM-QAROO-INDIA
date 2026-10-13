@@ -73,14 +73,33 @@ regress.
 
 ## Motion
 
-| Name | Use | Duration |
-|---|---|---|
-| `animate-fade-up` | Content arriving after a load | 450 ms, expo-out, staggered 60 ms |
-| `animate-pulse-ring` | "Live and healthy" indicator only | 2.4 s loop |
-| `skeleton` | Loading placeholder sweep | 1.6 s loop |
+Motion explains a change: where something came from, what is now selected, that
+something new arrived. It is quick (150 to 400 ms) and never loops, except the
+"live" pulse.
 
-`prefers-reduced-motion: reduce` disables all animation and transition globally.
-The pulse ring is also hidden with `motion-reduce:hidden`.
+**Easings** (`ease-*` utilities): `out-expo` for things arriving, `standard` for state
+changes, `pop` (a slight overshoot) only for small "something new" moments.
+
+| Pattern | Where | How |
+|---|---|---|
+| Sliding highlight | Side menu active item, every segmented tab bar (`SegmentedList` / `SegmentedItem`) | `motion` shared layout, spring 0.38 s |
+| Growing underline | Underline tabs (`TabsTrigger`), with the panel fading in | `after:` scale-x, 300 ms expo-out |
+| Page change | Every route | fade and 6 px rise, 180 ms (`AppShell`) |
+| Staggered entrance | Stat rows and card grids (`stagger` utility), login form | `fade-up`, 40 ms apart, capped at 320 ms |
+| Lift on hover | Cards that are links (`card-interactive`, `StatCard` with `to`) | 2 px rise, accent border and glow |
+| Press | Every `Button` | scale 0.97 |
+| Theme switch | Theme toggle | page cross-fade (View Transitions, 320 ms) and icon swap |
+| New count | Notification badge | `animate-badge-pop` |
+| Loading | `LoadingBlock` | fades in after 150 ms, so quick loads never flash |
+| Dialogs, drawers, menus | Radix primitives | `dialog-in`, `drawer-in`, `pop-in` and their `-out` pairs |
+| Live indicator | `StatusDot pulse` | `animate-pulse-ring`, 2.4 s loop |
+| Skeleton | Placeholders | `skeleton` sweep, 1.6 s loop |
+
+`prefers-reduced-motion: reduce` disables all animation and transition globally, and
+`MotionConfig reducedMotion="user"` does the same for `motion` components. The pulse
+ring is also hidden with `motion-reduce:hidden`.
+
+Scrollbars are thin and use the theme's border colour; in-page anchors scroll smoothly.
 
 ## Signature details
 
@@ -107,4 +126,4 @@ palette, all on these tokens.
 
 - Preference (`dark` | `light` | `system`) is stored in `localStorage['ims-theme']`, guarded for blocked storage.
 - An inline script in `index.html` applies the theme **before first paint**, so there is no flash of the wrong theme. `ThemeProvider` takes over once React mounts and tracks OS changes live in `system` mode.
-- The default is `dark`, the primary design direction.
+- The default is `system`: until someone picks a theme, the app follows the device's light/dark setting.

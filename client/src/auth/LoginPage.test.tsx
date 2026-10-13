@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { AppProviders } from '@/providers/AppProviders';
 import { createTestQueryClient, jsonResponse } from '@/test/render';
 import { AuthProvider } from './AuthProvider';
+import { RequireAuth } from './guards';
 import { LoginPage } from './LoginPage';
 
 const session: SessionResponse = {
@@ -18,6 +19,7 @@ const session: SessionResponse = {
     phone: null,
     role: 'owner',
     accountType: 'team',
+    jobRole: null,
     studentId: null,
     trainerId: null,
     hasPhoto: false,
@@ -76,6 +78,8 @@ function renderLogin(initialPath = '/login') {
           { path: '/login', element: <LoginPage /> },
           { path: '/', element: <p>Dashboard home</p> },
           { path: '/payments', element: <p>Payments page</p> },
+          // Like the real app: a page that needs a session.
+          { path: '/protected', element: <RequireAuth><p>Protected page</p></RequireAuth> },
         ],
       },
     ],
@@ -126,6 +130,31 @@ describe('LoginPage', () => {
     expect(login.method).toBe('POST');
     expect(login.headers['X-CSRF-Token']).toBe('csrf-anon-0123456789abcdefghijklmnop');
     expect(login.body).toEqual({ email: 'priya@institute.test', password: 'Correct-Horse-42' });
+  });
+
+  it('lands on a page that needs a session, without bouncing back to sign-in', async () => {
+    mockApi('ok');
+    const { user, router } = renderLogin('/login?next=%2Fprotected');
+
+    await user.type(await screen.findByLabelText(/Email/), 'priya@institute.test');
+    await user.type(screen.getByLabelText(/Password/), 'Correct-Horse-42');
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    expect(await screen.findByText('Protected page')).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/protected');
+  });
+
+  it('adapts the wording and help links to who is signing in', async () => {
+    mockApi('ok');
+    const { user } = renderLogin();
+
+    expect(await screen.findByRole('heading', { name: 'Office sign in' })).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /Student/ }));
+    expect(screen.getByRole('heading', { name: 'Student portal' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Activate your portal login' })).toHaveAttribute('href', '/activate');
+    await user.click(screen.getByRole('tab', { name: /Faculty/ }));
+    expect(screen.getByRole('heading', { name: 'Faculty sign in' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Activate your portal login' })).not.toBeInTheDocument();
   });
 
   it('ignores an off-site return address', async () => {

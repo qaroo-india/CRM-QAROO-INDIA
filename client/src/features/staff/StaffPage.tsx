@@ -1,6 +1,10 @@
 import {
   EMPLOYMENT_TYPES,
+  JOB_ROLE_LABELS,
+  JOB_ROLE_PERMISSIONS,
+  JOB_ROLES,
   ROLES,
+  type JobRole,
   createUserSchema,
   type CreateUserInput,
   type Permission,
@@ -26,6 +30,7 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@/compo
 import { PageHeader } from '@/components/ui/PageHeader';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Checkbox } from '@/components/ui/Toggle';
+import { roleLabel } from '@/app/navigation';
 import { useListParams } from '@/hooks/useListParams';
 import { api, toQuery, upload } from '@/lib/api';
 import { handleFormError, toastError, useZodForm } from '@/lib/forms';
@@ -163,6 +168,7 @@ function UserDrawer({ user, open, onOpenChange }: { user: UserSummary | null; op
             phone: user.phone ?? undefined,
             role: user.role,
             permissions: user.permissions.filter((p) => p !== '*') as Permission[],
+            jobRole: (user.jobRole ?? '') as CreateUserInput['jobRole'],
             // Placeholder that satisfies the schema; edits never send a password.
             temporaryPassword: 'Unchanged-Password-0',
             staffCode: user.staffCode ?? '',
@@ -173,7 +179,7 @@ function UserDrawer({ user, open, onOpenChange }: { user: UserSummary | null; op
             specialisation: user.specialisation ?? '',
             bio: user.bio ?? '',
           }
-        : { name: '', email: '', role: 'staff', permissions: [], temporaryPassword: generateTemporaryPassword(), staffCode: '', designation: '', department: '', employmentType: '', joinedOn: '', specialisation: '', bio: '' },
+        : { name: '', email: '', role: 'staff', jobRole: 'office_staff', permissions: [...JOB_ROLE_PERMISSIONS.office_staff], temporaryPassword: generateTemporaryPassword(), staffCode: '', designation: '', department: '', employmentType: '', joinedOn: '', specialisation: '', bio: '' },
     // `open` is a deliberate dependency: each opening gets a fresh password.
     [user, open],
   );
@@ -182,6 +188,12 @@ function UserDrawer({ user, open, onOpenChange }: { user: UserSummary | null; op
     if (open) form.reset(defaults);
   }, [open, defaults, form]);
   const role = form.watch('role');
+  const jobRole = form.watch('jobRole') as JobRole | '' | null | undefined;
+  const officeAccount = !isEdit || user.accountType === 'team';
+  // Picking a job role starts the permissions from its set; the owner can still tick more or fewer.
+  const applyJobRole = (value: string) => {
+    if (JOB_ROLES.includes(value as JobRole)) form.setValue('permissions', [...JOB_ROLE_PERMISSIONS[value as JobRole]], { shouldDirty: true });
+  };
 
   const save = useMutation({
     mutationFn: (values: CreateUserInput) =>
@@ -191,6 +203,7 @@ function UserDrawer({ user, open, onOpenChange }: { user: UserSummary | null; op
             phone: values.phone ?? null,
             role: values.role,
             permissions: values.permissions,
+            jobRole: values.jobRole,
             staffCode: values.staffCode,
             designation: values.designation,
             department: values.department,
@@ -258,6 +271,14 @@ function UserDrawer({ user, open, onOpenChange }: { user: UserSummary | null; op
                     {...form.register('role')}
                   />
                 </Field>
+                {role !== 'owner' && officeAccount && (
+                  <Field label="Job role" hint="Sets their menu, home page and starting permissions" className="sm:col-span-2">
+                    <Select
+                      options={[...JOB_ROLES.map((r) => ({ value: r, label: JOB_ROLE_LABELS[r] })), { value: '', label: 'Custom (no preset)' }]}
+                      {...form.register('jobRole', { onChange: (e: { target: { value: string } }) => applyJobRole(e.target.value) })}
+                    />
+                  </Field>
+                )}
               </div>
               {!isEdit && (
                 <Field label="Temporary password" hint="Generated for you; edit it if you prefer." error={form.formState.errors.temporaryPassword?.message} required>
@@ -307,7 +328,13 @@ function UserDrawer({ user, open, onOpenChange }: { user: UserSummary | null; op
 
             <FormSection
               title="Permissions"
-              description={role === 'owner' ? 'Owners have full access to everything.' : 'Choose exactly what this person may see and do.'}
+              description={
+                role === 'owner'
+                  ? 'Owners have full access to everything.'
+                  : jobRole
+                    ? `Started from the ${JOB_ROLE_LABELS[jobRole]} set. Tick more or fewer if this person needs it.`
+                    : 'Choose exactly what this person may see and do.'
+              }
             >
               {role === 'owner' ? (
                 <div className="flex items-center gap-2 rounded-control border border-primary/30 bg-primary-soft p-3 text-sm text-primary">
@@ -387,7 +414,7 @@ export function StaffPage() {
       header: 'Role',
       cell: (u) => (
         <div className="flex flex-col items-start gap-0.5">
-          <Badge tone={u.role === 'owner' ? 'violet' : u.accountType === 'faculty' ? 'primary' : 'neutral'}>{u.role === 'owner' ? 'Owner' : u.accountType === 'faculty' ? 'Faculty' : 'Staff'}</Badge>
+          <Badge tone={u.role === 'owner' ? 'violet' : u.accountType === 'faculty' ? 'primary' : 'neutral'}>{roleLabel(u)}</Badge>
           {u.designation && <span className="text-xs text-fg-subtle">{u.designation}</span>}
         </div>
       ),

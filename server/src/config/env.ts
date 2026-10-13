@@ -120,8 +120,10 @@ const envSchema = z
       .default('en-IN')
       .refine(isValidLocale, 'must be a supported locale such as en-IN'),
 
-    RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(15 * 60 * 1000),
-    RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(300),
+    // A flood guard, not a usage cap: a whole office shares one address, and
+    // every page makes several requests. Sign-in has its own strict limit.
+    RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(60 * 1000),
+    RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(600),
     /** Login attempts per IP per window, on top of per-account lockout. */
     LOGIN_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(20),
 

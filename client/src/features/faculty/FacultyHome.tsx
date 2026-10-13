@@ -27,7 +27,7 @@ export function FacultyHome() {
   return (
     <>
       <PageHeader title={`Good to see you, ${user?.name.split(' ')[0] ?? ''}`} description="Your classes this week, your batches and what is waiting for you." />
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="stagger grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>This week's classes</CardTitle>
@@ -111,10 +111,10 @@ export function FacultyHome() {
             ) : live.length === 0 ? (
               <EmptyState compact icon={GraduationCap} title="No batches assigned to you yet" description="The office assigns trainers to batches; yours will appear here." />
             ) : (
-              <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <ul className="stagger grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {live.map((b) => (
                   <li key={b.id}>
-                    <Link to={`/batches/${b.id}`} className="block rounded-card border p-3 transition-colors hover:bg-surface-raised">
+                    <Link to={`/batches/${b.id}`} className="card-interactive block rounded-card border bg-surface p-3">
                       <div className="flex items-center justify-between gap-2">
                         <p className="font-medium text-fg">{b.batchCode}</p>
                         <StatusBadge status={b.status} />

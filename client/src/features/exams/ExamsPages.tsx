@@ -16,14 +16,15 @@ import { EmptyState, ErrorState, LoadingBlock } from '@/components/ui/Feedback';
 import { Field } from '@/components/ui/Field';
 import { Input, Select, Textarea } from '@/components/ui/Input';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { SegmentedItem, SegmentedList } from '@/components/ui/Segmented';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Switch } from '@/components/ui/Toggle';
 import { useListParams } from '@/hooks/useListParams';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { dateTime, humanize, number, percent } from '@/utils/format';
-import { useActionParam, useCourses } from '../shared/hooks';
-import { useAction, useExam, useExamResults, useExams, useFieldErrors, useMyBatches } from '../campus/api';
+import { useActionParam } from '../shared/hooks';
+import { useAction, useExam, useExamResults, useExams, useFieldErrors, useMyBatches, useTeachingCourses } from '../campus/api';
 import { splitInstant, toInstant } from '../campus/time';
 
 const bpsText = (bps: number | null) => (bps === null ? '—' : percent(bps / 10_000, 1));
@@ -53,7 +54,7 @@ function ExamSettingsDialog({ open, onOpenChange, exam }: { open: boolean; onOpe
   const navigate = useNavigate();
   const { accountType } = useAuth();
   const batches = useMyBatches();
-  const courses = useCourses();
+  const courses = useTeachingCourses();
   const fields = useFieldErrors();
   const [form, setForm] = useState<SettingsForm | null>(null);
   const frozen = Boolean(exam && exam.status !== 'draft');
@@ -317,11 +318,11 @@ export function ExamDetailPage() {
         {e.submissions > 0 && <Badge tone="primary">{e.submissions} submitted · average {bpsText(e.averagePercentBps)} · pass rate {percent(e.passRate, 0)}</Badge>}
       </div>
 
-      <div role="tablist" aria-label="Exam views" className="mb-4 inline-flex gap-1 rounded-control border bg-surface p-1">
+      <SegmentedList label="Exam views" className="mb-4 inline-flex gap-1 rounded-control border bg-surface p-1">
         {(['questions', 'results'] as const).map((t) => (
-          <button key={t} role="tab" type="button" aria-selected={tab === t} onClick={() => setTab(t)} className={cn('rounded-lg px-3 py-1.5 text-sm font-medium transition-colors', tab === t ? 'bg-primary-soft text-primary' : 'text-fg-muted hover:text-fg')}>{humanize(t)}</button>
+          <SegmentedItem key={t} selected={tab === t} onClick={() => setTab(t)}>{humanize(t)}</SegmentedItem>
         ))}
-      </div>
+      </SegmentedList>
 
       {tab === 'questions' ? (
         <div className="space-y-3">

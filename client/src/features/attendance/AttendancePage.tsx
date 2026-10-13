@@ -11,6 +11,7 @@ import { Card } from '@/components/ui/Card';
 import { EmptyState, ErrorState, LoadingBlock } from '@/components/ui/Feedback';
 import { Input } from '@/components/ui/Input';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { SegmentedItem, SegmentedList } from '@/components/ui/Segmented';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { date, dateTime, getFormatConfig, humanize, number, percent } from '@/utils/format';
@@ -158,13 +159,13 @@ export function AttendancePage() {
       <Toolbar>
         <FilterSelect label="Batch" value={batchId} onChange={(v) => setParam({ batchId: v, classId: '' })} options={options} allLabel="Choose a batch" className="min-w-64" />
         {view === 'register' && <DateFilter label="Day" value={day} max={today} onChange={(v) => setParam({ date: v, classId: '' })} />}
-        <div role="tablist" aria-label="Attendance views" className="ml-auto flex gap-1 self-end rounded-control border bg-surface p-1">
+        <SegmentedList label="Attendance views" className="ml-auto flex gap-1 self-end rounded-control border bg-surface p-1">
           {(['register', 'history', 'summary'] as const).map((v) => (
-            <button key={v} role="tab" type="button" aria-selected={view === v} onClick={() => setParam({ view: v === 'register' ? '' : v })} className={cn('rounded-lg px-3 py-1.5 text-sm font-medium transition-colors', view === v ? 'bg-primary-soft text-primary' : 'text-fg-muted hover:text-fg')}>
+            <SegmentedItem key={v} selected={view === v} onClick={() => setParam({ view: v === 'register' ? '' : v })}>
               {humanize(v)}
-            </button>
+            </SegmentedItem>
           ))}
-        </div>
+        </SegmentedList>
       </Toolbar>
 
       {!batchId ? (

@@ -13,10 +13,10 @@ import { EmptyState } from '@/components/ui/Feedback';
 import { Field } from '@/components/ui/Field';
 import { Input, Select, Textarea } from '@/components/ui/Input';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { SegmentedItem, SegmentedList } from '@/components/ui/Segmented';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { useListParams } from '@/hooks/useListParams';
 import { api } from '@/lib/api';
-import { cn } from '@/lib/cn';
 import { date, getFormatConfig, humanize } from '@/utils/format';
 import { useAction, useFieldErrors, useLeave, useLeaveToday } from '../campus/api';
 
@@ -117,11 +117,11 @@ export function LeavePage() {
       )}
       <Toolbar>
         {canApprove && (
-          <div role="tablist" aria-label="Whose leave" className="flex gap-1 self-end rounded-control border bg-surface p-1">
+          <SegmentedList label="Whose leave" className="flex gap-1 self-end rounded-control border bg-surface p-1">
             {(['mine', 'team'] as const).map((s) => (
-              <button key={s} role="tab" type="button" aria-selected={scope === s} onClick={() => list.setFilter('scope', s === 'mine' ? '' : s)} className={cn('rounded-lg px-3 py-1.5 text-sm font-medium transition-colors', scope === s ? 'bg-primary-soft text-primary' : 'text-fg-muted hover:text-fg')}>{s === 'mine' ? 'My leave' : 'Team requests'}</button>
+              <SegmentedItem key={s} selected={scope === s} onClick={() => list.setFilter('scope', s === 'mine' ? '' : s)}>{s === 'mine' ? 'My leave' : 'Team requests'}</SegmentedItem>
             ))}
-          </div>
+          </SegmentedList>
         )}
         <FilterSelect label="Status" value={list.filters.status} onChange={(v) => list.setFilter('status', v)} options={LEAVE_STATUSES.map((s) => ({ value: s, label: humanize(s) }))} />
         <ResetFilters onReset={list.reset} disabled={!list.isFiltered} />

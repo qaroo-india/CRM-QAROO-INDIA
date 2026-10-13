@@ -3,7 +3,7 @@
  * so a password hash or token version can never reach the network.
  */
 
-import { ALL_PERMISSIONS, type InstituteInfo, type SessionUser, type UserSummary } from '@ims/shared';
+import { ALL_PERMISSIONS, type InstituteInfo, type JobRole, type SessionUser, type UserSummary } from '@ims/shared';
 import { eq } from 'drizzle-orm';
 import { db } from '../../db';
 import { students, trainers, type InstituteSettings, type PublicUser, type User } from '../../db/schema';
@@ -47,6 +47,11 @@ export function accountLinks(user: Pick<User, 'id' | 'accountType'>, database: D
   return { studentId: null, trainerId: null };
 }
 
+/** Only office staff have a job role; the owner is the admin. */
+function jobRoleOf(user: Pick<User, 'role' | 'accountType' | 'jobRole'>): JobRole | null {
+  return user.role === 'staff' && user.accountType === 'team' ? (user.jobRole ?? null) : null;
+}
+
 export function toPublicUser(user: User): PublicUser {
   const { passwordHash: _p, tokenVersion: _t, failedLoginCount: _f, lockedUntil: _l, ...rest } = user;
   return rest;
@@ -60,6 +65,7 @@ export function toSessionUser(user: User | PublicUser, links: AccountLinks = acc
     phone: user.phone,
     role: user.role,
     accountType: user.accountType,
+    jobRole: jobRoleOf(user),
     studentId: links.studentId,
     trainerId: links.trainerId,
     hasPhoto: Boolean(user.photoKey),
@@ -77,6 +83,7 @@ export function toUserSummary(user: User | PublicUser, links: AccountLinks = acc
     phone: user.phone,
     role: user.role,
     accountType: user.accountType,
+    jobRole: jobRoleOf(user),
     permissions: effectivePermissions(user),
     isActive: user.isActive,
     mustChangePassword: user.mustChangePassword,

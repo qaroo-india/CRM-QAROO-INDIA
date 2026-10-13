@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `job_role` text;

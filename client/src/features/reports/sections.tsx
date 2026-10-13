@@ -130,7 +130,7 @@ export function KpiGrid({ data, loading, stale }: { data: ReportDataset | undefi
   const showFinance = loading || data?.includesFinance;
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="stagger grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <StatCard label="New enquiries" icon={Megaphone} loading={loading} stale={stale} value={s ? number(s.leads.current) : '—'} delta={delta(s?.leads)} sparkline={leadSpark} to={drill.leads} hint="Leads with an enquiry date in the period. Each lead counts once." />
       <StatCard label="Admissions" icon={ClipboardList} loading={loading} stale={stale} value={s ? number(s.admissions.current) : '—'} delta={delta(s?.admissions)} sparkline={admissionSpark} to={drill.admissions} hint="Admissions dated in the period, excluding cancelled ones." />
       <StatCard

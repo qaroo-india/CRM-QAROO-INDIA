@@ -15,6 +15,7 @@ import { Field } from '@/components/ui/Field';
 import { Input, Select, Textarea } from '@/components/ui/Input';
 import { MoneyInput } from '@/components/ui/MoneyInput';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { SegmentedItem, SegmentedList } from '@/components/ui/Segmented';
 import { StatCard } from '@/components/ui/StatCard';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Switch } from '@/components/ui/Toggle';
@@ -155,7 +156,8 @@ export function InventoryPage() {
   const tab: Tab = tabs.find((t) => t.id === requested && t.show)?.id ?? 'items';
   const list = useListParams(['category', 'status'] as const, { sort: { key: 'name', order: 'asc' } });
   const items = useInventoryItems({ ...list.query, sort: undefined, order: undefined, ...(canSeeAll ? {} : { available: 'true' }) }, tab === 'items');
-  const requests = useInventoryRequests({ scope: tab === 'mine' ? 'mine' : 'all', status: tab === 'items' ? undefined : list.filters.status || undefined, page: list.page, limit: list.limit });
+  // Only the requests tab being shown is fetched ("all" needs inventory access).
+  const requests = useInventoryRequests({ scope: tab === 'mine' ? 'mine' : 'all', status: list.filters.status || undefined, page: list.page, limit: list.limit }, tab !== 'items');
   const [itemDialog, setItemDialog] = useState(false);
   const [editing, setEditing] = useState<InventoryItemDto | null>(null);
   const [requesting, setRequesting] = useState<InventoryItemDto | null>(null);
@@ -216,17 +218,17 @@ export function InventoryPage() {
     <>
       <PageHeader title="Inventory & assets" description="Laptops, equipment and supplies: what the institute owns, who has what, and requests." actions={can('inventory:write') && <Button onClick={() => { setEditing(null); setItemDialog(true); }}><Plus aria-hidden className="size-4" /> Add item</Button>} />
       {canSeeAll && tab === 'items' && (
-        <div className="mb-4 grid gap-3 sm:grid-cols-3">
+        <div className="stagger mb-4 grid gap-3 sm:grid-cols-3">
           <StatCard label="Items in the register" value={s ? number(s.activeItems) : '—'} icon={Package} loading={items.isPending} />
           <StatCard label="Units lent out" value={s ? number(s.unitsLent) : '—'} icon={PackageCheck} loading={items.isPending} />
           <StatCard label="Book value" value={s ? moneyCompact(s.totalValueMinor) : '—'} icon={Package} loading={items.isPending} hint="Quantity × unit value of items not retired. Purchase value, not depreciated." />
         </div>
       )}
-      <div role="tablist" aria-label="Inventory views" className="mb-4 inline-flex gap-1 rounded-control border bg-surface p-1">
+      <SegmentedList label="Inventory views" className="mb-4 inline-flex gap-1 rounded-control border bg-surface p-1">
         {tabs.filter((t) => t.show).map((t) => (
-          <button key={t.id} role="tab" type="button" aria-selected={tab === t.id} onClick={() => setTab(t.id)} className={cn('rounded-lg px-3 py-1.5 text-sm font-medium transition-colors', tab === t.id ? 'bg-primary-soft text-primary' : 'text-fg-muted hover:text-fg')}>{t.label}</button>
+          <SegmentedItem key={t.id} selected={tab === t.id} onClick={() => setTab(t.id)}>{t.label}</SegmentedItem>
         ))}
-      </div>
+      </SegmentedList>
       {tab === 'items' ? (
         <>
           <Toolbar>

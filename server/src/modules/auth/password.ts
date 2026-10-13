@@ -5,12 +5,18 @@
  */
 
 import { hash, verify } from '@node-rs/argon2';
+import { isTest } from '../../config/env';
 
-const OPTIONS = {
-  memoryCost: 19_456,
-  timeCost: 2,
-  parallelism: 1,
-} as const;
+/** OWASP minimum, used everywhere except the automated tests. */
+const OWASP_PROFILE = { memoryCost: 19_456, timeCost: 2, parallelism: 1 } as const;
+/**
+ * The test suite hashes hundreds of throwaway passwords. At 19 MiB each, a
+ * machine short on memory had Argon2's native code abort mid-run, so tests use
+ * a light profile. Verification reads the parameters from each hash, so the
+ * two never mix up.
+ */
+const TEST_PROFILE = { memoryCost: 1_024, timeCost: 1, parallelism: 1 } as const;
+const OPTIONS = isTest ? TEST_PROFILE : OWASP_PROFILE;
 
 export function hashPassword(password: string): Promise<string> {
   return hash(password, OPTIONS);

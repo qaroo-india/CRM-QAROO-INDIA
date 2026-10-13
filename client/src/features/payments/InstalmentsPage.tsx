@@ -9,6 +9,7 @@ import { DateFilter, FilterSelect, ResetFilters, SearchInput, Toolbar } from '@/
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/Feedback';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { SegmentedItem, SegmentedList } from '@/components/ui/Segmented';
 import { StatCard } from '@/components/ui/StatCard';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { useListParams } from '@/hooks/useListParams';
@@ -77,20 +78,19 @@ export function InstalmentsPage() {
         description="What is due, overdue and settled across every admission. Paid amounts come straight from receipts."
         breadcrumbs={[{ label: 'Finance' }, { label: 'Instalment plans' }]}
       />
-      <div role="tablist" aria-label="Instalment views" className="mb-4 flex flex-wrap gap-1 rounded-control border bg-surface p-1">
+      <SegmentedList label="Instalment views" className="mb-4 flex flex-wrap gap-1 rounded-control border bg-surface p-1">
         {INSTALMENT_VIEWS.map((v) => (
-          <button
+          <SegmentedItem
             key={v}
-            role="tab"
-            type="button"
-            aria-selected={view === v}
+           
+           
+            selected={view === v}
             onClick={() => list.setFilter('view', v)}
-            className={cn('rounded-lg px-3 py-1.5 text-sm font-medium transition-colors', view === v ? 'bg-primary-soft text-primary' : 'text-fg-muted hover:text-fg')}
           >
             {VIEW_LABELS[v]}
-          </button>
+          </SegmentedItem>
         ))}
-      </div>
+      </SegmentedList>
       <div className="mb-5 grid gap-3 sm:grid-cols-3">
         <StatCard label={`${VIEW_LABELS[view]}: instalments`} value={instalments.data ? number(instalments.data.total) : '—'} icon={CalendarClock} loading={instalments.isPending} stale={instalments.isFetching} />
         <StatCard label="Scheduled amount" value={summary ? moneyCompact(summary.scheduledMinor) : '—'} loading={instalments.isPending} stale={instalments.isFetching} />

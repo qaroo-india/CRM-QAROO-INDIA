@@ -9,6 +9,7 @@ import { Pagination } from '@/components/data/Pagination';
 import { DateFilter, FilterSelect, ResetFilters, SearchInput, Toolbar } from '@/components/data/Toolbar';
 import { EmptyState, ErrorState, LoadingBlock } from '@/components/ui/Feedback';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { SegmentedItem, SegmentedList } from '@/components/ui/Segmented';
 import { StatCard } from '@/components/ui/StatCard';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { useListParams } from '@/hooks/useListParams';
@@ -161,11 +162,11 @@ export function PlacementsPage() {
         breadcrumbs={[{ label: 'Placement' }, { label: track === 'technical' ? 'Technical' : 'Non-technical' }]}
         actions={<Link to={track === 'technical' ? '/placements/non-technical' : '/placements/technical'} className="text-sm text-primary hover:underline">Switch to {track === 'technical' ? 'non-technical' : 'technical'}</Link>}
       />
-      <div role="tablist" aria-label="Placement views" className="mb-4 flex flex-wrap gap-1 rounded-control border bg-surface p-1">
+      <SegmentedList label="Placement views" className="mb-4 flex flex-wrap gap-1 rounded-control border bg-surface p-1">
         {(Object.keys(TABS) as Tab[]).map((t) => (
-          <button key={t} role="tab" type="button" aria-selected={tab === t} onClick={() => setParam('tab', t)} className={cn('rounded-lg px-3 py-1.5 text-sm font-medium transition-colors', tab === t ? 'bg-primary-soft text-primary' : 'text-fg-muted hover:text-fg')}>{TABS[t]}</button>
+          <SegmentedItem key={t} selected={tab === t} onClick={() => setParam('tab', t)}>{TABS[t]}</SegmentedItem>
         ))}
-      </div>
+      </SegmentedList>
       {tab !== 'analytics' && (
         <Toolbar>
           <SearchInput value={list.q} onChange={list.setQ} placeholder={tab === 'applications' ? 'Student, company or role' : 'Student or admission'} />

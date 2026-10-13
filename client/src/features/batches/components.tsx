@@ -34,7 +34,9 @@ export function CapacityMeter({ enrolled, capacity, className }: { enrolled: num
 }
 
 export function BatchFormDrawer({ batch, open, onOpenChange }: { batch: BatchDto | null; open: boolean; onOpenChange: (open: boolean) => void }) {
-  const courses = useCourses();
+  // Loaded only when the drawer opens: pages that merely mount it (faculty
+  // included, who cannot read the course catalogue) should not fetch it.
+  const courses = useCourses(false, open);
   const trainers = useTrainers();
   const defaults = useMemo<BatchInput>(
     () =>

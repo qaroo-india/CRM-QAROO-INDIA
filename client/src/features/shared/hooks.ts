@@ -32,11 +32,12 @@ export function useUserOptions() {
   return useQuery({ queryKey: ['users', 'options'], queryFn: () => api.get<UserOption[]>('/users/options'), staleTime: LONG });
 }
 
-export function useCourses(activeOnly = false) {
+export function useCourses(activeOnly = false, enabled = true) {
   return useQuery({
     queryKey: ['courses', { activeOnly }],
     queryFn: () => api.get<CourseDto[]>(activeOnly ? '/courses?active=true' : '/courses'),
     staleTime: 60_000,
+    enabled,
   });
 }
 

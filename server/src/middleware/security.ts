@@ -49,8 +49,10 @@ export const corsMiddleware = cors({
 });
 
 /**
- * Baseline limit for the whole API. Tighter, per-account limits for login and
- * password reset are added with authentication in Milestone 2.
+ * Flood guard for the whole API, per IP (600 a minute by default). It must stay
+ * well above normal use: an office behind one address shares it, and each page
+ * makes several requests. Sign-in and password links have their own, much
+ * tighter limits plus account lockout.
  */
 export const apiRateLimit = rateLimit({
   windowMs: env.RATE_LIMIT_WINDOW_MS,

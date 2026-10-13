@@ -180,19 +180,28 @@ export async function loadCampusDemo(owner: RequestContext): Promise<CampusDemoR
   if (trainer?.email && (await attempt('faculty login', () => grantFacultyLogin(owner, trainer.id, { temporaryPassword: password })))) facultyLogin = trainer.email;
 
   /* Class schedule and attendance --------------------------------------- */
-  const SLOTS = ['10:00', '14:00', '18:00', '11:30'];
+  // Classes follow each batch's own timetable text ("Mon–Fri 18:00–20:00",
+  // "Sat–Sun 09:00–13:00"), so the portal never contradicts the batch card.
+  const timetable = (schedule: string | null, i: number) => {
+    const times = /(\d{2}):(\d{2})\D+(\d{2}):(\d{2})/.exec(schedule ?? '');
+    const start = times ? `${times[1]}:${times[2]}` : ['10:00', '14:00', '18:00', '11:30'][i % 4]!;
+    const minutes = times ? Number(times[3]) * 60 + Number(times[4]) - (Number(times[1]) * 60 + Number(times[2])) : 120;
+    const weekdays = /^Sat/i.test(schedule ?? '') ? [6, 0] : [1, 3, 5];
+    return { start, minutes: minutes > 0 ? minutes : 120, weekdays };
+  };
   for (const [i, b] of running.entries()) {
     const firstDay = b.startDate > addDays(today, -27) ? b.startDate : addDays(today, -27);
+    const slot = timetable(b.schedule, i);
     const made = await attempt('schedule', () =>
       createSessions(owner, {
         batchId: b.id,
         title: `${b.batchCode} class`,
         kind: 'lecture',
-        startsAt: offset(firstDay, SLOTS[i % SLOTS.length]!),
-        durationMinutes: 120,
+        startsAt: offset(firstDay, slot.start),
+        durationMinutes: slot.minutes,
         location: `Lab ${(i % 3) + 1}`,
         description: `${MARK} Regular class.`,
-        repeat: { weekdays: [1, 3, 5], until: addDays(today, 21) },
+        repeat: { weekdays: slot.weekdays, until: addDays(today, 21) },
       }),
     );
     if (!made) continue;

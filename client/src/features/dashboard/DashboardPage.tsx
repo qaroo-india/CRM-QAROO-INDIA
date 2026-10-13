@@ -43,7 +43,7 @@ function LiveStrip({ data }: { data: DashboardData | undefined }) {
       : []),
   ];
   return (
-    <section aria-label="Today at a glance" className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-9">
+    <section aria-label="Today at a glance" className="stagger grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-9">
       {items.map((item) => {
         const body = (
           <>

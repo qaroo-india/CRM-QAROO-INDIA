@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '@/components/ui/Menu';
 import { api } from '@/lib/api';
 import { UserAvatar } from '@/components/ui/Avatar';
-import { visibleQuickActions } from './navigation';
+import { roleLabel, visibleQuickActions } from './navigation';
 
 function UnreadBadge() {
   const unread = useQuery({
@@ -19,7 +19,7 @@ function UnreadBadge() {
   const count = unread.data?.unread ?? 0;
   if (count === 0) return null;
   return (
-    <span className="absolute -top-0.5 -right-0.5 grid min-w-4.5 place-items-center rounded-full bg-danger px-1 text-[10px] leading-4.5 font-semibold text-white tabular-nums">
+    <span key={count} className="absolute -top-0.5 -right-0.5 grid min-w-4.5 animate-badge-pop place-items-center rounded-full bg-danger px-1 text-[10px] leading-4.5 font-semibold text-white tabular-nums">
       {count > 99 ? '99+' : count}
     </span>
   );
@@ -49,7 +49,8 @@ export function Topbar({ onOpenMobileNav, onOpenPalette }: TopbarProps) {
         className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-control border border-border-strong bg-surface-sunken px-3 text-sm text-fg-subtle transition-colors hover:border-fg-subtle/60 sm:max-w-md"
       >
         <Search aria-hidden className="size-4 shrink-0" />
-        <span className="truncate">Search students, admissions, courses…</span>
+        {/* Record search is office work; faculty and students jump between their own pages. */}
+        <span className="truncate">{auth.accountType === 'team' ? 'Search students, admissions, courses…' : 'Go to a page…'}</span>
         <kbd className="ml-auto hidden rounded border bg-surface px-1.5 font-mono text-[10px] text-fg-subtle sm:inline">
           {isMac ? '⌘' : 'Ctrl'} K
         </kbd>
@@ -92,7 +93,7 @@ export function Topbar({ onOpenMobileNav, onOpenPalette }: TopbarProps) {
             <div className="px-2.5 py-2">
               <p className="truncate text-sm font-medium text-fg">{auth.user?.name}</p>
               <p className="truncate text-xs text-fg-subtle">{auth.user?.email}</p>
-              <p className="mt-1 text-xs text-fg-muted capitalize">{auth.user?.role}</p>
+              {auth.user && <p className="mt-1 text-xs font-medium text-primary">{roleLabel(auth.user)}</p>}
             </div>
             <MenuSeparator />
             <MenuItem icon={<KeyRound />} onSelect={() => navigate('/account')}>

@@ -101,7 +101,7 @@ export function ResetPasswordPage() {
   const [error, setError] = useState<string | null>(null);
   const save = useMutation({
     mutationFn: () => api.post<{ email: string }>('/auth/reset-password', { token, newPassword: password }),
-    onSuccess: (r) => navigate(`/login?reset=1&email=${encodeURIComponent(r.email)}`, { replace: true }),
+    onSuccess: (r) => navigate(`/login?reset=1&email=${encodeURIComponent(r.email)}${activating ? '&as=student' : ''}`, { replace: true }),
     onError: (e) => setError(e instanceof ApiRequestError ? (e.fields?.[0]?.message ?? e.message) : 'Could not save. Please try again.'),
   });
   const submit = (e: FormEvent) => {

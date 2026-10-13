@@ -11,7 +11,7 @@
  * and an audit trail that points at a missing user is not an audit trail.
  */
 
-import { ROLES, type AccountType, type EmploymentType, type Role } from '@ims/shared';
+import { ROLES, type AccountType, type EmploymentType, type JobRole, type Role } from '@ims/shared';
 import {
   bool,
   check,
@@ -45,6 +45,8 @@ export const users = table(
     role: enumStr('role', ROLES).$type<Role>().notNull().default('staff'),
     /** team | faculty | student -- which application the person uses (see ACCOUNT_TYPES). */
     accountType: str('account_type').$type<AccountType>().notNull().default('team'),
+    /** Office job role (see JOB_ROLES); shapes navigation only, never access. */
+    jobRole: str('job_role').$type<JobRole>(),
     /**
      * Granted permission strings, e.g. ["leads:read", "payments:write"].
      * Owners hold ["*"]. Checked server-side on every protected request.

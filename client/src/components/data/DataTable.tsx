@@ -261,7 +261,7 @@ export function DataTable<T>({
               : undefined
           }
           className={cn(
-            'border-b transition-colors last:border-b-0',
+            'border-b transition-colors duration-150 last:border-b-0',
             onRowClick && 'cursor-pointer hover:bg-surface-raised focus-visible:bg-surface-raised focus-visible:outline-none',
             selected && 'bg-primary-soft',
           )}

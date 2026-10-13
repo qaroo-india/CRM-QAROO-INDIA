@@ -9,13 +9,14 @@
  * the wrong theme; this provider takes over from there.
  */
 
-import { createContext, use, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, use, useCallback, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from 'react';
 
 export type ThemePreference = 'dark' | 'light' | 'system';
 export type ResolvedTheme = 'dark' | 'light';
 
 const STORAGE_KEY = 'ims-theme';
-const DEFAULT_PREFERENCE: ThemePreference = 'dark';
+/** Until someone picks, follow the device's own light/dark setting. */
+const DEFAULT_PREFERENCE: ThemePreference = 'system';
 const CYCLE: Record<ThemePreference, ThemePreference> = { dark: 'light', light: 'system', system: 'dark' };
 
 /** Browser-chrome colour per theme, matching --ims-canvas. */
@@ -59,7 +60,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const resolved: ResolvedTheme = preference === 'system' ? system : preference;
 
-  useEffect(() => {
+  // Layout effect: the attribute must change inside the same commit, so the
+  // theme toggle's view transition captures the new look.
+  useLayoutEffect(() => {
     document.documentElement.setAttribute('data-theme', resolved);
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLOR[resolved]);
   }, [resolved]);

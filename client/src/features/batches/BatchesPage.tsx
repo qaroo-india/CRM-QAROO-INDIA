@@ -13,6 +13,7 @@ import { EmptyState, ErrorState, LoadingBlock } from '@/components/ui/Feedback';
 import { Field } from '@/components/ui/Field';
 import { Input, Select } from '@/components/ui/Input';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { SegmentedItem, SegmentedList } from '@/components/ui/Segmented';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Switch } from '@/components/ui/Toggle';
 import { useListParams } from '@/hooks/useListParams';
@@ -20,7 +21,8 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { handleFormError, useZodForm } from '@/lib/forms';
 import { date, getFormatConfig, humanize, month, number, relative } from '@/utils/format';
-import { toOptions, useCourses } from '../shared/hooks';
+import { useTeachingCourses } from '../campus/api';
+import { toOptions } from '../shared/hooks';
 import { PortalAccessCard } from '../staff/PortalAccessCard';
 import { useBatches, useBatchMutation, useQueue, useTrainers } from './api';
 import { AssignDialog, BatchFormDrawer, CapacityMeter } from './components';
@@ -225,7 +227,7 @@ export function BatchesPage() {
   const auth = useAuth();
   const [params, setParams] = useSearchParams();
   const list = useListParams(['courseId', 'status'] as const, { sort: { key: 'startDate', order: 'asc' } });
-  const courses = useCourses();
+  const courses = useTeachingCourses();
   const [creating, setCreating] = useState(false);
   // Faculty see their own batches; the queue and trainer list are office work.
   const tabs: Tab[] = auth.accountType === 'faculty' ? ['batches', 'schedule'] : ['batches', 'queue', 'schedule', 'trainers'];
@@ -239,13 +241,13 @@ export function BatchesPage() {
         breadcrumbs={[{ label: 'Delivery' }, { label: 'Batches & trainers' }]}
         actions={auth.can('batches:write') && <Button onClick={() => setCreating(true)}><Plus aria-hidden className="size-4" /> New batch</Button>}
       />
-      <div role="tablist" aria-label="Batch views" className="mb-4 flex flex-wrap gap-1 rounded-control border bg-surface p-1">
+      <SegmentedList label="Batch views" className="mb-4 flex flex-wrap gap-1 rounded-control border bg-surface p-1">
         {tabs.map((t) => (
-          <button key={t} role="tab" type="button" aria-selected={tab === t} onClick={() => setParams((c) => { const p = new URLSearchParams(c); p.set('tab', t); return p; })} className={cn('rounded-lg px-3 py-1.5 text-sm font-medium transition-colors', tab === t ? 'bg-primary-soft text-primary' : 'text-fg-muted hover:text-fg')}>
+          <SegmentedItem key={t} selected={tab === t} onClick={() => setParams((c) => { const p = new URLSearchParams(c); p.set('tab', t); return p; })}>
             {TAB_LABELS[t]}
-          </button>
+          </SegmentedItem>
         ))}
-      </div>
+      </SegmentedList>
       {tab !== 'trainers' && (
         <Toolbar>
           <SearchInput value={list.q} onChange={list.setQ} placeholder={tab === 'queue' ? 'Student, phone or admission' : 'Batch name or code'} />

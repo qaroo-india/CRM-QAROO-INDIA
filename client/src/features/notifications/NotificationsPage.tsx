@@ -9,6 +9,7 @@ import { Pagination } from '@/components/data/Pagination';
 import { Button } from '@/components/ui/Button';
 import { EmptyState, ErrorState, LoadingBlock } from '@/components/ui/Feedback';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { SegmentedItem, SegmentedList } from '@/components/ui/Segmented';
 import { api, toQuery } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { toastError } from '@/lib/forms';
@@ -68,13 +69,13 @@ export function NotificationsPage() {
           </div>
         }
       />
-      <div role="tablist" aria-label="Filter" className="mb-4 inline-flex gap-1 rounded-control border bg-surface p-1">
+      <SegmentedList label="Filter" className="mb-4 inline-flex gap-1 rounded-control border bg-surface p-1">
         {[false, true].map((u) => (
-          <button key={String(u)} role="tab" type="button" aria-selected={unreadOnly === u} onClick={() => { setUnreadOnly(u); setPage(1); }} className={cn('rounded-lg px-3 py-1.5 text-sm font-medium transition-colors', unreadOnly === u ? 'bg-primary-soft text-primary' : 'text-fg-muted hover:text-fg')}>
+          <SegmentedItem key={String(u)} selected={unreadOnly === u} onClick={() => { setUnreadOnly(u); setPage(1); }}>
             {u ? 'Unread' : 'All'}
-          </button>
+          </SegmentedItem>
         ))}
-      </div>
+      </SegmentedList>
       {list.isPending ? (
         <LoadingBlock />
       ) : list.isError ? (

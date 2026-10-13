@@ -179,6 +179,59 @@ export const DEFAULT_FACULTY_PERMISSIONS: readonly Permission[] = [
   'materials:write',
 ];
 
+/**
+ * What an office (team) account does day to day. The owner is the admin; other
+ * office accounts are a counsellor (enquiries to admission) or office staff
+ * (fees, payments, expenses and day-to-day operations). The job role picks
+ * the starting permissions when the account is created, and shapes that
+ * person's side navigation and landing page. Permissions stay authoritative:
+ * the owner can still widen or narrow them per person, and the server checks
+ * permissions, never the job role.
+ */
+export const JOB_ROLES = ['counsellor', 'office_staff'] as const;
+export type JobRole = (typeof JOB_ROLES)[number];
+
+export const JOB_ROLE_LABELS: Record<JobRole, string> = {
+  counsellor: 'Counsellor',
+  office_staff: 'Office staff',
+};
+
+export const JOB_ROLE_PERMISSIONS: Record<JobRole, readonly Permission[]> = {
+  counsellor: [
+    'leads:read',
+    'leads:write',
+    'students:read',
+    'students:write',
+    'courses:read',
+    'admissions:read',
+    'admissions:write',
+    'batches:read',
+    'documents:read',
+    'documents:write',
+  ],
+  office_staff: [
+    'students:read',
+    'students:write',
+    'courses:read',
+    'admissions:read',
+    'payments:read',
+    'payments:write',
+    'feePlans:read',
+    'feePlans:write',
+    'loans:read',
+    'expenses:read',
+    'expenses:write',
+    'batches:read',
+    'batches:assign',
+    'schedule:read',
+    'attendance:read',
+    'certificates:read',
+    'documents:read',
+    'documents:write',
+    'inventory:read',
+  ],
+};
+
 /** True when `granted` satisfies `required`, honouring the owner wildcard. */
 export function hasPermission(
   granted: readonly string[] | undefined,

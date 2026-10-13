@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { ErrorState } from '@/components/ui/Feedback';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { SegmentedItem, SegmentedList } from '@/components/ui/Segmented';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { fetchFile, saveBlob, toQuery } from '@/lib/api';
 import { cn } from '@/lib/cn';
@@ -193,11 +194,11 @@ export function ReportsPage() {
           )
         }
       />
-      <div role="tablist" aria-label="Report views" className="mb-4 flex flex-wrap gap-1 rounded-control border bg-surface p-1">
+      <SegmentedList label="Report views" className="mb-4 flex flex-wrap gap-1 rounded-control border bg-surface p-1">
         {tabs.filter((t) => t.show).map((t) => (
-          <button key={t.id} role="tab" type="button" aria-selected={tab === t.id} onClick={() => setTab(t.id)} className={cn('rounded-lg px-3 py-1.5 text-sm font-medium transition-colors', tab === t.id ? 'bg-primary-soft text-primary' : 'text-fg-muted hover:text-fg')}>{t.label}</button>
+          <SegmentedItem key={t.id} selected={tab === t.id} onClick={() => setTab(t.id)}>{t.label}</SegmentedItem>
         ))}
-      </div>
+      </SegmentedList>
 
       {tab === 'report' && (
         <div className="space-y-5">

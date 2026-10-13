@@ -15,7 +15,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { addDays, addMonths, DEFAULT_ROLE_PERMISSIONS, minDate, type Permission } from '@ims/shared';
+import { addDays, addMonths, JOB_ROLE_PERMISSIONS, minDate, type JobRole, type Permission } from '@ims/shared';
 import { and, asc, count, eq } from 'drizzle-orm';
 import { isProduction } from '../config/env';
 import { logger } from '../config/logger';
@@ -104,15 +104,16 @@ async function main(): Promise<void> {
   /* Staff ------------------------------------------------------------ */
   const password = `Demo-${randomBytes(6).toString('base64url')}`;
   const hash = await hashPassword(password);
-  const staffSpec: { name: string; email: string; extra: Permission[] }[] = [
-    { name: 'Neha Counsellor (Demo)', email: 'neha.counsellor@demo.invalid', extra: [] },
-    { name: 'Imran Counsellor (Demo)', email: 'imran.counsellor@demo.invalid', extra: [] },
-    { name: 'Asha Accounts (Demo)', email: 'asha.accounts@demo.invalid', extra: ['payments:refund', 'feePlans:write', 'reports:financial', 'reports:export', 'expenses:write'] },
+  // Two counsellors and an accounts person, each with their job role's menu.
+  const staffSpec: { name: string; email: string; jobRole: JobRole; extra: Permission[] }[] = [
+    { name: 'Neha Counsellor (Demo)', email: 'neha.counsellor@demo.invalid', jobRole: 'counsellor', extra: [] },
+    { name: 'Imran Counsellor (Demo)', email: 'imran.counsellor@demo.invalid', jobRole: 'counsellor', extra: [] },
+    { name: 'Asha Accounts (Demo)', email: 'asha.accounts@demo.invalid', jobRole: 'office_staff', extra: ['payments:refund', 'reports:read', 'reports:financial', 'reports:export'] },
   ];
   const staff = staffSpec.map((s) =>
     db
       .insert(users)
-      .values({ name: s.name, email: s.email, passwordHash: hash, role: 'staff', permissions: [...DEFAULT_ROLE_PERMISSIONS.staff, ...s.extra], mustChangePassword: true })
+      .values({ name: s.name, email: s.email, passwordHash: hash, role: 'staff', jobRole: s.jobRole, permissions: [...JOB_ROLE_PERMISSIONS[s.jobRole], ...s.extra], mustChangePassword: true, designation: s.jobRole === 'counsellor' ? 'Counsellor' : 'Accounts executive' })
       .returning()
       .get(),
   );

@@ -3,7 +3,9 @@
  * and the post-login landing page all derive from this list.
  *
  * What a person sees depends on who signed in:
- *   - team (owner, office staff): the back office, filtered by permission;
+ *   - team (owner, office staff): the back office, filtered by permission,
+ *     with the person's own work first: a counsellor starts with enquiries
+ *     and admissions, office staff with fees and payments;
  *   - faculty: a teaching workspace (their batches, classes, attendance,
  *     exams, material) plus tasks, leave and requests;
  *   - student: the student portal only.
@@ -11,7 +13,7 @@
  * a link is convenience, never security.
  */
 
-import type { AccountType, Permission } from '@ims/shared';
+import { JOB_ROLE_LABELS, type AccountType, type JobRole, type Permission } from '@ims/shared';
 import {
   Award,
   Banknote,
@@ -167,7 +169,23 @@ type Can = (permission: Permission) => boolean;
 
 export interface Viewer {
   accountType: AccountType;
+  /** Office job role; orders the menu and picks the landing page. */
+  jobRole?: JobRole | null;
   can: Can;
+}
+
+/** The section each office job role works in most, moved to the top. */
+const SECTION_FIRST: Record<JobRole, string> = {
+  counsellor: 'Growth',
+  office_staff: 'Finance',
+};
+
+/** What to call the signed-in person's role (account menu, staff list). */
+export function roleLabel(user: { role: string; accountType: AccountType; jobRole?: JobRole | null }): string {
+  if (user.accountType === 'student') return 'Student';
+  if (user.accountType === 'faculty') return 'Faculty';
+  if (user.role === 'owner') return 'Owner / Admin';
+  return user.jobRole ? JOB_ROLE_LABELS[user.jobRole] : 'Staff';
 }
 
 const DEFAULT_AUDIENCE: readonly AccountType[] = ['team', 'faculty'];
@@ -178,20 +196,30 @@ function allowed(item: NavItem, viewer: Viewer): boolean {
 
 export function visibleSections(viewer: Viewer): NavSection[] {
   const source = viewer.accountType === 'student' ? STUDENT_NAV_SECTIONS : NAV_SECTIONS;
-  return source
+  const sections = source
     .map((section) => ({ ...section, items: section.items.filter((item) => allowed(item, viewer)) }))
     .filter((section) => section.items.length > 0);
+  const first = viewer.accountType === 'team' && viewer.jobRole ? SECTION_FIRST[viewer.jobRole] : undefined;
+  const at = first ? sections.findIndex((s) => s.label === first) : -1;
+  if (at <= 0) return sections;
+  // Overview (the dashboard, when permitted) stays on top; the role's own section follows it.
+  const top = sections[0]!.label === 'Overview' ? 1 : 0;
+  if (at === top) return sections;
+  const reordered = [...sections];
+  const [own] = reordered.splice(at, 1);
+  reordered.splice(top, 0, own!);
+  return reordered;
 }
 
 export function visibleItems(viewer: Viewer): NavItem[] {
   return visibleSections(viewer).flatMap((s) => s.items);
 }
 
-/** Where to land after sign-in. */
+/** Where to land after sign-in: the first page of the person's own menu. */
 export function firstAllowedPath(viewer: Viewer): string {
   if (viewer.accountType === 'student') return '/portal';
   if (viewer.accountType === 'faculty') return '/';
-  return NAV_SECTIONS.flatMap((s) => s.items).find((item) => allowed(item, viewer))?.to ?? '/notifications';
+  return visibleItems(viewer)[0]?.to ?? '/notifications';
 }
 
 /** Quick-create actions (top bar "+" and command palette). */

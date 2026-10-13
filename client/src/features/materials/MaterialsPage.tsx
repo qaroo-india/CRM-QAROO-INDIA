@@ -21,8 +21,8 @@ import { useListParams } from '@/hooks/useListParams';
 import { api, fetchFile, saveBlob, upload } from '@/lib/api';
 import { toastError } from '@/lib/forms';
 import { date, dateTime, humanize, number } from '@/utils/format';
-import { useActionParam, useCourses } from '../shared/hooks';
-import { useAction, useFieldErrors, useMaterials, useMyBatches } from '../campus/api';
+import { useActionParam } from '../shared/hooks';
+import { useAction, useFieldErrors, useMaterials, useMyBatches, useTeachingCourses } from '../campus/api';
 
 const sizeText = (bytes: number | null) => (bytes === null ? '' : bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`);
 
@@ -41,7 +41,7 @@ export async function openMaterial(m: MaterialDto, base: '/materials' | '/portal
 
 function MaterialDialog({ open, onOpenChange, editing }: { open: boolean; onOpenChange: (o: boolean) => void; editing: MaterialDto | null }) {
   const { accountType } = useAuth();
-  const courses = useCourses();
+  const courses = useTeachingCourses();
   const batches = useMyBatches();
   const fields = useFieldErrors();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -135,7 +135,7 @@ export function MaterialsPage() {
   const { can } = useAuth();
   const list = useListParams(['courseId', 'batchId', 'kind'] as const, { sort: { key: 'createdAt', order: 'desc' } });
   const materials = useMaterials({ ...list.query, sort: undefined });
-  const courses = useCourses();
+  const courses = useTeachingCourses();
   const batches = useMyBatches();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<MaterialDto | null>(null);

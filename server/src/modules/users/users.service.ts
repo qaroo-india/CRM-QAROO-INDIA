@@ -10,6 +10,7 @@
 import {
   ALL_PERMISSIONS,
   DEFAULT_ROLE_PERMISSIONS,
+  JOB_ROLE_PERMISSIONS,
   type CreateUserInput,
   type UpdateUserInput,
   type UserOption,
@@ -95,12 +96,13 @@ export function getUser(id: string): UserSummary {
 
 export async function createUser(ctx: RequestContext, raw: CreateUserInput): Promise<UserSummary> {
   const input = createUserSchema.parse(raw);
+  const jobRole = input.role === 'owner' ? null : input.jobRole;
   const permissions =
     input.role === 'owner'
       ? [ALL_PERMISSIONS]
       : input.permissions.length > 0
         ? input.permissions
-        : [...(DEFAULT_ROLE_PERMISSIONS.staff as readonly string[])];
+        : [...((jobRole ? JOB_ROLE_PERMISSIONS[jobRole] : DEFAULT_ROLE_PERMISSIONS.staff) as readonly string[])];
   assertCanGrant(ctx, input.role, permissions);
 
   if (db.select({ id: users.id }).from(users).where(eq(users.email, input.email)).get()) {
@@ -117,6 +119,7 @@ export async function createUser(ctx: RequestContext, raw: CreateUserInput): Pro
         email: input.email,
         phone: input.phone ?? null,
         role: input.role,
+        jobRole,
         permissions,
         passwordHash,
         mustChangePassword: true,
@@ -145,6 +148,8 @@ export function updateUser(ctx: RequestContext, id: string, raw: UpdateUserInput
     throw ApiError.forbidden('Faculty and student logins cannot be made owners.');
   }
   const nextPermissions = nextRole === 'owner' ? [ALL_PERMISSIONS] : (input.permissions ?? user.permissions);
+  // Job roles belong to office staff only; the owner is the admin.
+  const nextJobRole = nextRole === 'owner' || user.accountType !== 'team' ? null : input.jobRole !== undefined ? input.jobRole : user.jobRole;
 
   if (input.role !== undefined || input.permissions !== undefined) {
     if (id === ctx.actorId && input.role && input.role !== user.role) {
@@ -166,6 +171,7 @@ export function updateUser(ctx: RequestContext, id: string, raw: UpdateUserInput
         ...(input.name !== undefined && { name: input.name }),
         ...(input.phone !== undefined && { phone: input.phone }),
         role: nextRole,
+        jobRole: nextJobRole,
         permissions: nextPermissions,
         ...profileColumns(input),
       })

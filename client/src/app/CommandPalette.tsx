@@ -46,8 +46,8 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   const search = useQuery({
     queryKey: ['search', term],
     queryFn: ({ signal }) => api.get<SearchHit[]>(`/search${toQuery({ q: term })}`, { signal }),
-    // Record search is a back-office tool; students search their pages only.
-    enabled: open && term.length >= 2 && auth.accountType !== 'student',
+    // Record search is office work; faculty and students search their pages only.
+    enabled: open && term.length >= 2 && auth.accountType === 'team',
     staleTime: 30_000,
     retry: false,
   });
@@ -86,7 +86,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
         <Command.Input
           value={query}
           onValueChange={setQuery}
-          placeholder="Search records or jump to a page…"
+          placeholder={auth.accountType === 'team' ? 'Search records or jump to a page…' : 'Jump to a page…'}
           className="h-12 flex-1 bg-transparent text-sm text-fg outline-none placeholder:text-fg-subtle"
         />
       </div>

@@ -12,6 +12,7 @@ import { Field } from '@/components/ui/Field';
 import { Input, Select, Textarea } from '@/components/ui/Input';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/Menu';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { SegmentedItem, SegmentedList } from '@/components/ui/Segmented';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { useListParams } from '@/hooks/useListParams';
 import { api, fetchFile, saveBlob, upload } from '@/lib/api';
@@ -168,11 +169,11 @@ export function TasksPage() {
     <>
       <PageHeader title="Tasks" description="Your work list. Overdue tasks are flagged, and you get a reminder each day they stay open." actions={<Button onClick={() => { setEditing(null); setDialogOpen(true); }}><Plus aria-hidden className="size-4" /> New task</Button>} />
       <Toolbar>
-        <div role="tablist" aria-label="Whose tasks" className="flex gap-1 self-end rounded-control border bg-surface p-1">
+        <SegmentedList label="Whose tasks" className="flex gap-1 self-end rounded-control border bg-surface p-1">
           {scopes.map((s) => (
-            <button key={s.value} role="tab" type="button" aria-selected={scope === s.value} onClick={() => list.setFilter('scope', s.value === 'mine' ? '' : s.value)} className={cn('rounded-lg px-3 py-1.5 text-sm font-medium transition-colors', scope === s.value ? 'bg-primary-soft text-primary' : 'text-fg-muted hover:text-fg')}>{s.label}</button>
+            <SegmentedItem key={s.value} selected={scope === s.value} onClick={() => list.setFilter('scope', s.value === 'mine' ? '' : s.value)}>{s.label}</SegmentedItem>
           ))}
-        </div>
+        </SegmentedList>
         <SearchInput value={list.q} onChange={list.setQ} placeholder="Task" />
         <FilterSelect label="Status" value={list.filters.status} onChange={(v) => list.setFilter('status', v)} options={TASK_STATUSES.map((s) => ({ value: s, label: humanize(s) }))} />
         <FilterSelect label="Priority" value={list.filters.priority} onChange={(v) => list.setFilter('priority', v)} options={TASK_PRIORITIES.map((s) => ({ value: s, label: humanize(s) }))} />

@@ -172,7 +172,11 @@
   --radius-card: 1rem;
   --radius-control: 0.625rem;
 
+  /* Motion: expo-out for things arriving, standard for state changes, a
+     slight overshoot only for small "something new" pops. */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-pop: cubic-bezier(0.34, 1.56, 0.64, 1);
 
   --animate-pulse-ring: pulse-ring 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
   --animate-shimmer: shimmer 1.6s linear infinite;
@@ -187,6 +191,9 @@
   --animate-drawer-left-out: drawer-left-out 0.18s ease-in both;
   --animate-pop-in: pop-in 0.16s cubic-bezier(0.16, 1, 0.3, 1) both;
   --animate-pop-out: pop-out 0.1s ease-in both;
+  --animate-fade-in: fade-in 0.2s ease-out both;
+  --animate-badge-pop: badge-pop 0.36s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-icon-swap: icon-swap 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
 
   @keyframes overlay-in {
     from {
@@ -264,6 +271,27 @@
     }
   }
 
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes badge-pop {
+    0% {
+      transform: scale(0.4);
+      opacity: 0;
+    }
+    60% {
+      opacity: 1;
+    }
+  }
+  @keyframes icon-swap {
+    from {
+      transform: rotate(-90deg) scale(0.6);
+      opacity: 0;
+    }
+  }
+
   @keyframes fade-up {
     from {
       opacity: 0;
@@ -288,6 +316,7 @@
 
   html {
     font-family: var(--font-sans);
+    scroll-behavior: smooth;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
@@ -307,6 +336,35 @@
   ::selection {
     background: color-mix(in oklch, var(--color-primary) 32%, transparent);
   }
+
+  /* Thin scrollbars in the theme's colours (tables, sidebar, drawers). */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border-strong) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background: var(--color-border-strong) padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-fg-subtle);
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+/* Switching between light and dark cross-fades the whole page (View
+   Transitions, where the browser supports them) instead of snapping. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.32s;
+  animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
 }
 
 /* ------------------------------------------------------------------ *
@@ -329,6 +387,55 @@
     var(--ims-backdrop-glow),
     transparent 70%
   );
+}
+
+/* Children arrive one after another (stat rows, card grids). Capped so a
+   long list never waits more than ~0.4 s. */
+@utility stagger {
+  & > * {
+    animation: var(--animate-fade-up);
+  }
+  & > :nth-child(2) {
+    animation-delay: 40ms;
+  }
+  & > :nth-child(3) {
+    animation-delay: 80ms;
+  }
+  & > :nth-child(4) {
+    animation-delay: 120ms;
+  }
+  & > :nth-child(5) {
+    animation-delay: 160ms;
+  }
+  & > :nth-child(6) {
+    animation-delay: 200ms;
+  }
+  & > :nth-child(7) {
+    animation-delay: 240ms;
+  }
+  & > :nth-child(8) {
+    animation-delay: 280ms;
+  }
+  & > :nth-child(n + 9) {
+    animation-delay: 320ms;
+  }
+}
+
+/* A card that is a link: lifts slightly and picks up the accent on hover. */
+@utility card-interactive {
+  transition:
+    transform 0.2s var(--ease-out-expo),
+    border-color 0.2s var(--ease-standard),
+    box-shadow 0.2s var(--ease-standard),
+    background-color 0.2s var(--ease-standard);
+  &:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in oklch, var(--color-primary) 40%, var(--color-border));
+    box-shadow: var(--shadow-card), var(--shadow-glow);
+  }
+  &:active {
+    transform: translateY(0);
+  }
 }
 
 /* Loading placeholder sweep, for skeletons. */

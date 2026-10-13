@@ -15,6 +15,7 @@ import { EmptyState } from '@/components/ui/Feedback';
 import { Field } from '@/components/ui/Field';
 import { Select } from '@/components/ui/Input';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { SegmentedItem, SegmentedList } from '@/components/ui/Segmented';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { useListParams } from '@/hooks/useListParams';
 import { fetchFile, saveBlob, toQuery } from '@/lib/api';
@@ -156,24 +157,18 @@ export function LeadsPage() {
         }
       />
 
-      <div role="tablist" aria-label="Lead views" className="mb-4 inline-flex rounded-control border bg-surface p-1">
+      <SegmentedList label="Lead views" className="mb-4 inline-flex rounded-control border bg-surface p-1">
         {VIEWS.map(({ key, label, icon: Icon }) => (
-          <button
+          <SegmentedItem
             key={key}
-            role="tab"
-            type="button"
-            aria-selected={view === key}
+            selected={view === key}
             onClick={() => setView(key)}
-            className={cn(
-              'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
-              view === key ? 'bg-primary-soft text-primary' : 'text-fg-muted hover:text-fg',
-            )}
           >
             <Icon aria-hidden className="size-4" />
             {label}
-          </button>
+          </SegmentedItem>
         ))}
-      </div>
+      </SegmentedList>
 
       <Toolbar>
         <SearchInput value={list.q} onChange={list.setQ} placeholder="Search name, phone, email or code" />

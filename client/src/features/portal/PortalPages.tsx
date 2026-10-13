@@ -92,12 +92,12 @@ export function PortalOverviewPage() {
   return (
     <>
       <PageHeader title={`Hello, ${(user?.name ?? o.student.fullName).split(' ')[0]}`} description={`Student ID ${o.student.studentCode}`} />
-      <div className="mb-4 grid gap-3 sm:grid-cols-3">
+      <div className="stagger mb-4 grid gap-3 sm:grid-cols-3">
         <StatCard label="Exams open to you" value={number(o.openExams)} icon={BookOpenCheck} to="/portal/exams" />
         <StatCard label="New study material" value={number(o.newMaterials)} icon={FolderOpen} to="/portal/materials" hint="Shared in the last 14 days" />
         <StatCard label="Certificates issued" value={number(o.certificates.issued)} icon={Award} to="/portal/certificates" hint={o.certificates.requested ? `${o.certificates.requested} request(s) in progress` : undefined} />
       </div>
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="stagger grid gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-1">
           {o.admissions.length === 0 ? <Card><EmptyState compact title="No admissions on record" /></Card> : o.admissions.map((a) => <AdmissionCard key={a.id} a={a} />)}
         </div>
@@ -222,7 +222,7 @@ export function PortalFeesPage() {
   return (
     <>
       <PageHeader title="Fees & receipts" description="What you have paid, what is due, and a receipt for every payment. Pay at the office; payments appear here once recorded." />
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="stagger mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Total fee" value={money(totals.agreed)} loading={fees.isPending} />
         <StatCard label="Paid" value={money(totals.paid)} loading={fees.isPending} />
         <StatCard label="Still to pay" value={money(totals.outstanding)} loading={fees.isPending} />

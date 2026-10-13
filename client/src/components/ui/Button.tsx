@@ -43,8 +43,8 @@ export function Button({
       aria-busy={loading || undefined}
       className={cn(
         'inline-flex shrink-0 items-center justify-center gap-2 rounded-control font-medium whitespace-nowrap select-none',
-        'transition-[background-color,border-color,color,box-shadow,filter,transform] duration-150',
-        'active:translate-y-px disabled:pointer-events-none disabled:opacity-50',
+        'transition-[background-color,border-color,color,box-shadow,filter,transform] duration-200 ease-standard',
+        'active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50',
         VARIANTS[variant],
         SIZES[size],
         className,

@@ -229,7 +229,11 @@ zone. Admissions count by `admission_date`; collections by `payment_date`.
 Every endpoint, with its permission, is listed in [API.md](API.md).
 
 **Client routes.** The side navigation is built from the signed-in account: its type
-(team, faculty or student) and then its permissions. The server enforces the same rules
+(team, faculty or student), then its permissions. Office staff also have a job role:
+a **counsellor** sees enquiries, students, admissions and courses first and lands on
+Enquiries; **office staff** see fees, instalments, loans and expenses first and land on Fees &
+payments; the **owner** (admin) sees everything and lands on the dashboard. The job role
+only orders the menu and picks starting permissions; the server enforces the same rules
 independently.
 
 ```

@@ -1,4 +1,6 @@
 import { ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { motion } from 'motion/react';
+import { useId } from 'react';
 import { NavLink } from 'react-router';
 import { BrandMark } from '@/auth/LoginPage';
 import { useAuth } from '@/auth/AuthProvider';
@@ -7,6 +9,9 @@ import { cn } from '@/lib/cn';
 import { visibleSections, type NavSection } from './navigation';
 
 export function NavSections({ sections, collapsed = false, onNavigate }: { sections: NavSection[]; collapsed?: boolean; onNavigate?: () => void }) {
+  // One highlight per menu that glides to the active page (the sidebar and the
+  // mobile drawer each get their own).
+  const group = useId();
   return (
     <nav aria-label="Main" className="space-y-5">
       {sections.map((section) => (
@@ -29,17 +34,26 @@ export function NavSections({ sections, collapsed = false, onNavigate }: { secti
                   onClick={onNavigate}
                   className={({ isActive }) =>
                     cn(
-                      'group relative flex h-9 items-center gap-3 rounded-lg px-3 text-sm transition-colors duration-150',
-                      isActive ? 'bg-primary-soft font-medium text-primary' : 'text-fg-muted hover:bg-surface-raised hover:text-fg',
+                      'group relative flex h-9 items-center gap-3 rounded-lg px-3 text-sm transition-colors duration-200',
+                      isActive ? 'font-medium text-primary' : 'text-fg-muted hover:bg-surface-raised hover:text-fg',
                       collapsed && 'justify-center px-0',
                     )
                   }
                 >
                   {({ isActive }) => (
                     <>
-                      {isActive && <span aria-hidden className="absolute top-1.5 bottom-1.5 left-0 w-0.5 rounded-full bg-primary" />}
-                      <Icon aria-hidden className="size-4.5 shrink-0" />
-                      <span className={cn('truncate', collapsed && 'sr-only')}>{item.label}</span>
+                      {isActive && (
+                        <motion.span
+                          layoutId={`${group}-active`}
+                          aria-hidden
+                          className="absolute inset-0 rounded-lg bg-primary-soft"
+                          transition={{ type: 'spring', bounce: 0.15, duration: 0.4 }}
+                        >
+                          <span className="absolute top-1.5 bottom-1.5 left-0 w-0.5 rounded-full bg-primary" />
+                        </motion.span>
+                      )}
+                      <Icon aria-hidden className={cn('relative size-4.5 shrink-0 transition-transform duration-200 ease-out-expo', !isActive && 'group-hover:translate-x-0.5')} />
+                      <span className={cn('relative truncate', collapsed && 'sr-only')}>{item.label}</span>
                     </>
                   )}
                 </NavLink>

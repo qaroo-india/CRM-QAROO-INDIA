@@ -4,7 +4,7 @@
  * certificate check, so they all look the same.
  */
 
-import { BarChart3, GraduationCap, ShieldCheck, Wallet } from 'lucide-react';
+import { BarChart3, GraduationCap, ShieldCheck, UsersRound, Wallet } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
 
@@ -12,6 +12,7 @@ const HIGHLIGHTS = [
   { icon: GraduationCap, text: 'Enquiry to placement in one record' },
   { icon: Wallet, text: 'Exact fee ledgers, instalments and refunds' },
   { icon: BarChart3, text: 'Live dashboards and scheduled reports' },
+  { icon: UsersRound, text: 'Own sign-in for office staff, faculty and students' },
 ];
 
 export function AuthLayout({ children }: { children: ReactNode }) {
@@ -26,7 +27,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
         </div>
         <div className="relative max-w-md space-y-6">
           <h2 className="text-3xl leading-tight font-semibold tracking-tight text-fg">
-            Run admissions, fees and placements from one control centre.
+            Admissions, classes, fees and placements in one place.
           </h2>
           <ul className="space-y-3">
             {HIGHLIGHTS.map(({ icon: Icon, text }) => (
@@ -55,7 +56,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
         </div>
 
         <div className="flex flex-1 items-center justify-center py-10">
-          <div className="w-full max-w-sm space-y-7">{children}</div>
+          <div className="stagger w-full max-w-sm space-y-7">{children}</div>
         </div>
 
         <footer className="text-center text-xs text-fg-subtle">

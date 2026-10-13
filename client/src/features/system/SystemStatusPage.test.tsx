@@ -165,12 +165,17 @@ describe('SystemStatusPage', () => {
 });
 
 describe('theme toggle', () => {
-  it('cycles dark -> light -> system and remembers the choice', async () => {
+  it('follows the device by default, then cycles dark -> light -> system and remembers the choice', async () => {
     mockFetch(jsonResponse({ success: true, data: healthy }));
     const { user } = renderWithProviders(<SystemStatusPage />);
     await screen.findByText('All systems operational');
 
+    // Nothing saved yet: follow the device (the test browser has no light preference).
+    expect(window.localStorage.getItem('ims-theme')).toBeNull();
     expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
+
+    await user.click(screen.getByRole('button', { name: /theme: system/i }));
+    expect(window.localStorage.getItem('ims-theme')).toBe('dark');
 
     await user.click(screen.getByRole('button', { name: /theme: dark/i }));
     await waitFor(() => expect(document.documentElement).toHaveAttribute('data-theme', 'light'));

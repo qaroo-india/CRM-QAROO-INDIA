@@ -17,6 +17,7 @@ import {
   type SessionResponse,
   type SessionUser,
   type AccountType,
+  type JobRole,
 } from '@ims/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createContext, use, useCallback, useEffect, useMemo, type ReactNode } from 'react';
@@ -40,7 +41,7 @@ interface AuthContextValue {
   /** team | faculty | student: decides which application the person sees. */
   accountType: AccountType;
   /** Account type + permission check, for navigation and guards. */
-  viewer: { accountType: AccountType; can: (permission: Permission) => boolean };
+  viewer: { accountType: AccountType; jobRole: JobRole | null; can: (permission: Permission) => boolean };
   signIn: (input: LoginInput) => Promise<SessionResponse>;
   signOut: () => Promise<void>;
   /** Replace the cached session (after a password change, settings edit). */
@@ -94,6 +95,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [queryClient],
   );
 
+  // Drop every cached query from the previous session EXCEPT the session
+  // itself. queryClient.clear() would also destroy the session query this
+  // provider is observing: the new session would then land in a query nobody
+  // watches, the guards would still see "anonymous", and a successful sign-in
+  // would bounce straight back to the sign-in page.
+  const dropOtherQueries = useCallback(() => {
+    queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== sessionQueryKey[0] });
+  }, [queryClient]);
+
   // React to the API discovering mid-use that the session is over.
   useEffect(
     () =>
@@ -103,36 +113,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (current) {
             toast.warning('Your session has ended. Please sign in again.');
           }
-          queryClient.clear();
+          dropOtherQueries();
           queryClient.setQueryData(sessionQueryKey, null);
           void queryClient.invalidateQueries({ queryKey: sessionQueryKey });
         } else if (event === 'password-change-required') {
           void queryClient.invalidateQueries({ queryKey: sessionQueryKey });
         }
       }),
-    [queryClient],
+    [queryClient, dropOtherQueries],
   );
 
   const signIn = useCallback(
     async (input: LoginInput) => {
       const result = await api.post<SessionResponse>('/auth/login', input);
-      queryClient.clear();
+      dropOtherQueries();
       updateSession(result);
       return result;
     },
-    [queryClient, updateSession],
+    [dropOtherQueries, updateSession],
   );
 
   const signOut = useCallback(async () => {
     try {
       await api.post('/auth/logout');
     } finally {
-      queryClient.clear();
+      dropOtherQueries();
       queryClient.setQueryData(sessionQueryKey, null);
       const { csrfToken } = await api.get<{ csrfToken: string }>('/auth/csrf').catch(() => ({ csrfToken: '' }));
       setCsrfToken(csrfToken || null);
     }
-  }, [queryClient]);
+  }, [queryClient, dropOtherQueries]);
 
   const value = useMemo<AuthContextValue>(() => {
     const permissions = data?.user.permissions ?? [];
@@ -147,7 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       canAll: (...required) => hasAllPermissions(permissions, required),
       isOwner: data?.user.role === 'owner',
       accountType,
-      viewer: { accountType, can },
+      viewer: { accountType, jobRole: data?.user.jobRole ?? null, can },
       signIn,
       signOut,
       updateSession,
@@ -162,7 +172,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         <div className="w-full max-w-md rounded-card border bg-surface p-2 shadow-card">
           <ErrorState
             error={session.error}
-            title="Cannot connect to Institute OS"
+            title={session.error instanceof ApiRequestError && session.error.status === 429 ? 'Too many requests right now' : 'Cannot connect to Institute OS'}
             onRetry={() => void session.refetch()}
             retrying={session.isFetching}
           />

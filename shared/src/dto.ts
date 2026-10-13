@@ -4,7 +4,7 @@
  * 'YYYY-MM-DD'; instants are ISO strings.
  */
 
-import type { AccountType, Role } from './constants/roles';
+import type { AccountType, JobRole, Role } from './constants/roles';
 import type { DateRange } from './dates';
 
 export interface SessionUser {
@@ -15,6 +15,8 @@ export interface SessionUser {
   role: Role;
   /** Which application this person uses: back office, faculty, or student portal. */
   accountType: AccountType;
+  /** Office job role (counsellor / office staff); null for the owner, faculty, students and custom access. */
+  jobRole: JobRole | null;
   /** The student record a student login belongs to. */
   studentId: string | null;
   /** The trainer record a faculty login belongs to. */
@@ -64,6 +66,7 @@ export interface UserSummary {
   phone: string | null;
   role: Role;
   accountType: AccountType;
+  jobRole: JobRole | null;
   permissions: string[];
   isActive: boolean;
   mustChangePassword: boolean;

@@ -79,7 +79,7 @@ export function ErrorState({ error, onRetry, retrying, title = 'Could not load t
 /** Full-area loading placeholder for a page section. */
 export function LoadingBlock({ label = 'Loading…', className }: { label?: string; className?: string }) {
   return (
-    <div aria-busy="true" className={cn('grid place-items-center py-16', className)}>
+    <div aria-busy="true" className={cn('grid place-items-center py-16 animate-fade-in [animation-delay:150ms]', className)}>
       <span className="inline-flex items-center gap-2 text-sm text-fg-muted">
         <LoaderCircle aria-hidden className="size-4 animate-spin" />
         {label}

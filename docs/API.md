@@ -89,7 +89,7 @@ Multi-value filters are comma-separated, for example `?status=active,completed`.
 
 ### Rate limiting
 
-All of `/api/v1` shares a per-IP limit. The default is 300 requests per 15 minutes, set by `RATE_LIMIT_MAX` and `RATE_LIMIT_WINDOW_MS`.
+All of `/api/v1` shares a per-IP flood guard. The default is 600 requests per minute, set by `RATE_LIMIT_MAX` and `RATE_LIMIT_WINDOW_MS`. Keep it well above normal use: an office behind one address shares it.
 
 - `POST /auth/login` has its own, tighter limit: `LOGIN_RATE_LIMIT_MAX`.
 - Separately, a single account locks for 15 minutes after 5 failed passwords.
@@ -150,7 +150,7 @@ the link is written to the server log instead of being sent.
 | POST | `/portal-access/students/:id`, `/portal-access/trainers/:id` | `portal:manage`. `{ temporaryPassword }`: gives (or switches back on) a student portal or faculty login. The record's email is the sign-in name (`422 EMAIL_REQUIRED` without one). Students need an admission (`NO_ADMISSION`) and an active record (`STUDENT_NOT_ACTIVE`). |
 | POST | `/portal-access/:userId/revoke` | `portal:manage`. Switches a student or faculty login off and signs it out everywhere. |
 | GET | `/users` (`?q&role&active&accountType`), `/users/:id` | `users:read`. Student logins are listed only with `accountType=student`. |
-| POST | `/users`; PATCH `/users/:id`; POST `/users/:id/deactivate`, `/users/:id/reactivate`, `/users/:id/reset-password` | `users:write`. Only an owner can grant permissions, and nobody can escalate above their own. |
+| POST | `/users`; PATCH `/users/:id`; POST `/users/:id/deactivate`, `/users/:id/reactivate`, `/users/:id/reset-password` | `users:write`. Only an owner can grant permissions, and nobody can escalate above their own. Office staff take an optional `jobRole` (`counsellor` \| `office_staff`, or `''` for custom): a new account with no permissions listed starts from that role's set. The job role shapes the menu and landing page only; access is always the permission list. |
 | GET | `/settings` | signed in |
 | PATCH | `/settings` | `settings:write` |
 | GET | `/settings/{lead-sources\|expense-categories\|job-categories}` | signed in (`?includeInactive=true`) |

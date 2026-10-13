@@ -1,8 +1,8 @@
-import { DEFAULT_FACULTY_PERMISSIONS, hasPermission, type AccountType, type Permission } from '@ims/shared';
+import { DEFAULT_FACULTY_PERMISSIONS, hasPermission, JOB_ROLE_PERMISSIONS, type AccountType, type JobRole, type Permission } from '@ims/shared';
 import { describe, expect, it } from 'vitest';
-import { firstAllowedPath, visibleItems, visibleQuickActions, visibleSections } from './navigation';
+import { firstAllowedPath, roleLabel, visibleItems, visibleQuickActions, visibleSections } from './navigation';
 
-const viewer = (accountType: AccountType, granted: readonly string[]) => ({ accountType, can: (permission: Permission) => hasPermission(granted, permission) });
+const viewer = (accountType: AccountType, granted: readonly string[], jobRole: JobRole | null = null) => ({ accountType, jobRole, can: (permission: Permission) => hasPermission(granted, permission) });
 const labels = (v: ReturnType<typeof viewer>) => visibleItems(v).map((i) => i.label);
 
 describe('navigation follows who signed in', () => {
@@ -35,6 +35,43 @@ describe('navigation follows who signed in', () => {
     const items = labels(viewer('student', []));
     expect(items).toEqual(['Overview', 'Classes', 'Attendance', 'Exams & results', 'Study material', 'Fees & receipts', 'Certificates', 'Placement', 'Notifications', 'My profile']);
     expect(visibleQuickActions(viewer('student', ['*']))).toEqual([]);
+  });
+
+  it('gives a counsellor an enquiries-and-admissions menu that opens on Enquiries', () => {
+    const counsellor = viewer('team', JOB_ROLE_PERMISSIONS.counsellor, 'counsellor');
+    const sections = visibleSections(counsellor);
+    expect(sections[0]!.label).toBe('Growth');
+    expect(sections[0]!.items.map((i) => i.label)).toEqual(['Enquiries & leads', 'Students', 'Admissions', 'Courses']);
+    const items = labels(counsellor);
+    expect(items).not.toContain('Fees & payments');
+    expect(items).not.toContain('Expenses');
+    expect(items).not.toContain('Executive dashboard');
+    expect(firstAllowedPath(counsellor)).toBe('/leads');
+  });
+
+  it('gives office staff a fees-first menu that opens on Fees & payments', () => {
+    const office = viewer('team', JOB_ROLE_PERMISSIONS.office_staff, 'office_staff');
+    const sections = visibleSections(office);
+    expect(sections[0]!.label).toBe('Finance');
+    expect(sections[0]!.items.map((i) => i.label)).toEqual(['Fees & payments', 'Instalment plans', 'Loans & financing', 'Expenses']);
+    const items = labels(office);
+    expect(items).not.toContain('Enquiries & leads');
+    expect(items).toEqual(expect.arrayContaining(['Students', 'Batches & trainers', 'Class schedule', 'Certificates', 'Inventory & assets']));
+    expect(firstAllowedPath(office)).toBe('/payments');
+  });
+
+  it('keeps the dashboard on top for an admin, and names every role', () => {
+    const admin = viewer('team', ['*']);
+    expect(visibleSections(admin)[0]!.label).toBe('Overview');
+    expect(firstAllowedPath(admin)).toBe('/');
+    // A job role never hides the dashboard from someone allowed to see it.
+    expect(visibleSections(viewer('team', ['reports:read', 'payments:read'], 'office_staff')).map((s) => s.label).slice(0, 2)).toEqual(['Overview', 'Finance']);
+    expect(roleLabel({ role: 'owner', accountType: 'team' })).toBe('Owner / Admin');
+    expect(roleLabel({ role: 'staff', accountType: 'team', jobRole: 'counsellor' })).toBe('Counsellor');
+    expect(roleLabel({ role: 'staff', accountType: 'team', jobRole: 'office_staff' })).toBe('Office staff');
+    expect(roleLabel({ role: 'staff', accountType: 'team', jobRole: null })).toBe('Staff');
+    expect(roleLabel({ role: 'staff', accountType: 'faculty' })).toBe('Faculty');
+    expect(roleLabel({ role: 'staff', accountType: 'student' })).toBe('Student');
   });
 
   it('lands each kind of account on its home', () => {

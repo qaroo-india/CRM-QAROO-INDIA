@@ -4,7 +4,7 @@
 
 import { z } from 'zod';
 import { EMPLOYMENT_TYPES } from '../constants/domain';
-import { ACCOUNT_TYPES, PERMISSIONS, ROLES } from '../constants/roles';
+import { ACCOUNT_TYPES, JOB_ROLES, PERMISSIONS, ROLES } from '../constants/roles';
 import { dateOnlySchema, emailSchema, nonEmptyString, optionalString, phoneSchema } from './common';
 
 /**
@@ -66,12 +66,19 @@ export const staffProfileFields = {
 export const staffProfileSchema = z.object(staffProfileFields);
 export type StaffProfileInput = z.input<typeof staffProfileSchema>;
 
+/** Office job role; null (or '') means a custom set of permissions. */
+const jobRoleField = z
+  .union([z.literal(''), z.null(), z.enum(JOB_ROLES)])
+  .optional()
+  .transform((v) => (v ? v : null));
+
 export const createUserSchema = z.object({
   name: nonEmptyString(120, 'Name'),
   email: emailSchema,
   phone: phoneSchema.optional(),
   role: z.enum(ROLES),
   permissions: permissionList.default([]),
+  jobRole: jobRoleField,
   temporaryPassword: passwordSchema,
   ...staffProfileFields,
 });
@@ -83,6 +90,7 @@ export const updateUserSchema = z
     phone: phoneSchema.nullable(),
     role: z.enum(ROLES),
     permissions: permissionList,
+    jobRole: jobRoleField,
     ...staffProfileFields,
   })
   .partial();

@@ -4,6 +4,7 @@
  * profiles and photos.
  */
 
+import { JOB_ROLE_PERMISSIONS } from '@ims/shared';
 import { eq } from 'drizzle-orm';
 import request from 'supertest';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -226,6 +227,27 @@ describe('staff profiles and photos', () => {
     const updated = (await owner.patch(`/api/v1/users/${created.id}`, { designation: 'Senior counsellor' }).expect(200)).body.data;
     expect(updated).toMatchObject({ designation: 'Senior counsellor', department: 'Admissions' });
     await owner.post('/api/v1/users', { name: 'Dup Code', email: 'dup.code@example.com', role: 'staff', temporaryPassword: 'Temp-Pass-2026', staffCode: 'EMP-007' }).expect(409);
+  });
+
+  it('starts a job role from its permission set and reports it in the session', async () => {
+    const counsellor = (
+      await owner.post('/api/v1/users', { name: 'Nila Counsellor', email: 'nila.counsellor@example.com', role: 'staff', jobRole: 'counsellor', temporaryPassword: 'Temp-Pass-2026' }).expect(201)
+    ).body.data;
+    expect(counsellor.jobRole).toBe('counsellor');
+    expect([...counsellor.permissions].sort()).toEqual([...JOB_ROLE_PERMISSIONS.counsellor].sort());
+
+    const session = await login('nila.counsellor@example.com', 'Temp-Pass-2026');
+    expect(session.res.body.data.user).toMatchObject({ jobRole: 'counsellor', accountType: 'team' });
+
+    // Switching role keeps whatever permissions the owner sends; the job role only shapes the menu.
+    const office = (await owner.patch(`/api/v1/users/${counsellor.id}`, { jobRole: 'office_staff', permissions: [...JOB_ROLE_PERMISSIONS.office_staff] }).expect(200)).body.data;
+    expect(office.jobRole).toBe('office_staff');
+    const custom = (await owner.patch(`/api/v1/users/${counsellor.id}`, { jobRole: '' }).expect(200)).body.data;
+    expect(custom.jobRole).toBeNull();
+    await owner.patch(`/api/v1/users/${counsellor.id}`, { jobRole: 'principal' }).expect(422);
+    // The owner is the admin: no job role.
+    const promoted = (await owner.patch(`/api/v1/users/${counsellor.id}`, { role: 'owner', jobRole: 'counsellor' }).expect(200)).body.data;
+    expect(promoted).toMatchObject({ role: 'owner', jobRole: null });
   });
 
   it('lets people set their own photo, images only', async () => {
