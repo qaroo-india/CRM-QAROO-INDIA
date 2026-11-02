@@ -10,11 +10,15 @@
  * POST /auth/reset-password    public: set a password with an emailed token (reset or activation)
  */
 
-import { changePasswordSchema, loginSchema, type SessionResponse } from '@ims/shared';
+import { changePasswordSchema, loginSchema, newId, type AccountType, type SessionResponse } from '@ims/shared';
+import { eq } from 'drizzle-orm';
 import { Router, type Request, type Response } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { env } from '../../config/env';
+import { db } from '../../db';
+import { users } from '../../db/schema';
 import { authenticate } from '../../middleware/auth';
+import { recordAudit } from '../../services/audit';
 import { getSettings } from '../../services/settings';
 import { ApiError } from '../../utils/ApiError';
 import { contextFrom } from '../../utils/context';
@@ -23,7 +27,8 @@ import { parseBody } from '../../utils/validate';
 import { toInstituteInfo, toSessionUser } from '../users/serialize';
 import { requestPasswordReset, requestStudentActivation, setPasswordWithToken } from '../accounts/accounts.service';
 import { changePassword, login, refreshSession, withAccessToken, type IssuedSession } from './auth.service';
-import { clearSessionCookies, ensureCsrfToken, REFRESH_COOKIE, revokeRefreshFamily, setSessionCookies } from './tokens';
+import { hashPassword } from './password';
+import { clearSessionCookies, ensureCsrfToken, issueRefreshToken, REFRESH_COOKIE, revokeRefreshFamily, setSessionCookies } from './tokens';
 
 export const authRouter = Router();
 
@@ -72,6 +77,80 @@ authRouter.get('/csrf', (req, res) => {
 authRouter.post('/login', loginLimiter, async (req, res) => {
   const input = parseBody(loginSchema, req);
   const session = await withAccessToken(await login(input, meta(req)));
+  setSessionCookies(res, session.accessToken, session.refresh);
+  ok(res, await sessionBody(req, res, session));
+});
+
+authRouter.post('/firebase-login', loginLimiter, async (req, res) => {
+  const { email, name, role, accountType } = (req.body ?? {}) as {
+    email?: string;
+    name?: string;
+    role?: string;
+    accountType?: string;
+  };
+
+  if (!email || typeof email !== 'string') {
+    throw new ApiError(400, 'VALIDATION_ERROR', 'Valid email is required');
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const userName = (name && typeof name === 'string' ? name.trim() : '') || cleanEmail.split('@')[0] || 'User';
+
+  const isOwnerDefault =
+    cleanEmail === 'admin@qaroo.in' ||
+    cleanEmail === 'owner@institute.local';
+
+  // Find or create the user in the database
+  let user = await db.select().from(users).where(eq(users.email, cleanEmail)).get();
+
+  if (!user) {
+    const assignedRole = isOwnerDefault ? 'owner' : (role === 'owner' ? 'owner' : 'staff');
+    const dummyPasswordHash = await hashPassword('Firebase-' + Math.random().toString(36));
+    user = await db
+      .insert(users)
+      .values({
+        id: newId(),
+        email: cleanEmail,
+        name: userName,
+        passwordHash: dummyPasswordHash,
+        role: assignedRole,
+        accountType: (accountType as AccountType) || 'team',
+        permissions: assignedRole === 'owner' ? ['*'] : [],
+        isActive: true,
+        mustChangePassword: false,
+      })
+      .returning()
+      .get();
+  } else if (!user.isActive) {
+    throw new ApiError(403, 'ACCOUNT_DISABLED', 'This account has been deactivated. Contact the institute owner.');
+  }
+
+  // Issue session tokens for the authenticated user
+  const session = await withAccessToken(
+    await db.transaction(async (tx) => {
+      const updated = await tx
+        .update(users)
+        .set({ failedLoginCount: 0, lockedUntil: null, lastLoginAt: new Date() })
+        .where(eq(users.id, user.id))
+        .returning()
+        .get();
+      const refresh = await issueRefreshToken(tx, user.id, meta(req));
+      await recordAudit(
+        tx,
+        {
+          actorId: user.id,
+          actorName: user.name,
+          permissions: [],
+          isOwner: user.role === 'owner',
+          accountType: user.accountType,
+          ip: meta(req).ip,
+        },
+        { action: 'login', entityType: 'user', entityId: user.id, summary: `${user.name} signed in via Firebase` },
+      );
+      return { user: updated, accessToken: '', refresh };
+    }),
+  );
+
   setSessionCookies(res, session.accessToken, session.refresh);
   ok(res, await sessionBody(req, res, session));
 });

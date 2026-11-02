@@ -43,6 +43,7 @@ interface AuthContextValue {
   /** Account type + permission check, for navigation and guards. */
   viewer: { accountType: AccountType; jobRole: JobRole | null; can: (permission: Permission) => boolean };
   signIn: (input: LoginInput) => Promise<SessionResponse>;
+  signInWithGoogle: () => Promise<SessionResponse>;
   signOut: () => Promise<void>;
   /** Replace the cached session (after a password change, settings edit). */
   updateSession: (session: SessionResponse) => void;
@@ -125,15 +126,98 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(
     async (input: LoginInput) => {
-      const result = await api.post<SessionResponse>('/auth/login', input);
-      dropOtherQueries();
-      updateSession(result);
-      return result;
+      // 1. First attempt Firebase Authentication
+      try {
+        const { signInWithEmailAndPassword } = await import('firebase/auth');
+        const { auth } = await import('@/lib/firebase');
+        const { syncUserToFirestore } = await import('@/lib/firebaseUser');
+
+        const cred = await signInWithEmailAndPassword(auth, input.email, input.password);
+        await syncUserToFirestore({
+          uid: cred.user.uid,
+          email: cred.user.email || input.email,
+          name: cred.user.displayName,
+        });
+
+        const sessionRes = await api.post<SessionResponse>('/auth/firebase-login', {
+          email: cred.user.email || input.email,
+          name: cred.user.displayName,
+          uid: cred.user.uid,
+        });
+        dropOtherQueries();
+        updateSession(sessionRes);
+        return sessionRes;
+      } catch {
+        // 2. Fallback to server database authentication
+        const result = await api.post<SessionResponse>('/auth/login', input);
+
+        // Provision/sync in Firebase Auth & Cloud Firestore in background
+        try {
+          const { createUserWithEmailAndPassword, signInWithEmailAndPassword } = await import('firebase/auth');
+          const { auth } = await import('@/lib/firebase');
+          const { syncUserToFirestore } = await import('@/lib/firebaseUser');
+
+          let cred;
+          try {
+            cred = await createUserWithEmailAndPassword(auth, input.email, input.password);
+          } catch {
+            cred = await signInWithEmailAndPassword(auth, input.email, input.password);
+          }
+          if (cred?.user) {
+            await syncUserToFirestore({
+              uid: cred.user.uid,
+              email: input.email,
+              name: result.user.name,
+              role: result.user.role as any,
+              accountType: result.user.accountType,
+            });
+          }
+        } catch {
+          // Background sync completed or non-blocking
+        }
+
+        dropOtherQueries();
+        updateSession(result);
+        return result;
+      }
     },
     [dropOtherQueries, updateSession],
   );
 
+  const signInWithGoogle = useCallback(async () => {
+    const { signInWithPopup } = await import('firebase/auth');
+    const { auth, googleProvider } = await import('@/lib/firebase');
+    const { syncUserToFirestore } = await import('@/lib/firebaseUser');
+
+    const result = await signInWithPopup(auth, googleProvider);
+    const fbUser = result.user;
+
+    // Store user in Firestore
+    await syncUserToFirestore({
+      uid: fbUser.uid,
+      email: fbUser.email || '',
+      name: fbUser.displayName,
+      photoURL: fbUser.photoURL,
+    });
+
+    // Exchange with backend session
+    const sessionRes = await api.post<SessionResponse>('/auth/firebase-login', {
+      email: fbUser.email,
+      name: fbUser.displayName,
+      uid: fbUser.uid,
+    });
+
+    dropOtherQueries();
+    updateSession(sessionRes);
+    return sessionRes;
+  }, [dropOtherQueries, updateSession]);
+
   const signOut = useCallback(async () => {
+    try {
+      const { signOut: fbSignOut } = await import('firebase/auth');
+      const { auth } = await import('@/lib/firebase');
+      await fbSignOut(auth).catch(() => {});
+    } catch {}
     try {
       await api.post('/auth/logout');
     } finally {
@@ -159,10 +243,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       accountType,
       viewer: { accountType, jobRole: data?.user.jobRole ?? null, can },
       signIn,
+      signInWithGoogle,
       signOut,
       updateSession,
     };
-  }, [data, session.isPending, signIn, signOut, updateSession]);
+  }, [data, session.isPending, signIn, signInWithGoogle, signOut, updateSession]);
 
   if (session.isError) {
     // The API is unreachable or failing at boot: say so, offer a retry and
