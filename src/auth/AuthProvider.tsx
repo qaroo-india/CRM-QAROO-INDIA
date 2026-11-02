@@ -43,7 +43,7 @@ interface AuthContextValue {
   /** Account type + permission check, for navigation and guards. */
   viewer: { accountType: AccountType; jobRole: JobRole | null; can: (permission: Permission) => boolean };
   signIn: (input: LoginInput) => Promise<SessionResponse>;
-  signInWithGoogle: (targetAccountType?: AccountType) => Promise<SessionResponse>;
+  signInWithGoogle: (targetAccountType?: AccountType, useRedirect?: boolean) => Promise<SessionResponse | null>;
   signOut: () => Promise<void>;
   /** Replace the cached session (after a password change, settings edit). */
   updateSession: (session: SessionResponse) => void;
@@ -124,6 +124,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [queryClient, dropOtherQueries],
   );
 
+  // Exchange Firebase redirect sign-in results if arriving from Google OAuth redirect
+  useEffect(() => {
+    if (import.meta.env.MODE === 'test') return;
+    let mounted = true;
+
+    async function handleRedirectResult() {
+      try {
+        const { getRedirectResult } = await import('firebase/auth');
+        const { auth } = await import('@/lib/firebase');
+        const { syncUserToFirestore } = await import('@/lib/firebaseUser');
+
+        const cred = await getRedirectResult(auth);
+        if (cred?.user && mounted) {
+          const fbUser = cred.user;
+          let targetAccountType: AccountType | undefined;
+          try {
+            const stored = localStorage.getItem('ims.google.targetAccountType') as AccountType | null;
+            if (stored) {
+              targetAccountType = stored;
+              localStorage.removeItem('ims.google.targetAccountType');
+            }
+          } catch {}
+
+          await syncUserToFirestore({
+            uid: fbUser.uid,
+            email: fbUser.email || '',
+            name: fbUser.displayName,
+            photoURL: fbUser.photoURL,
+            accountType: targetAccountType,
+          });
+
+          const sessionRes = await api.post<SessionResponse>('/auth/firebase-login', {
+            email: fbUser.email,
+            name: fbUser.displayName,
+            uid: fbUser.uid,
+            accountType: targetAccountType,
+          });
+
+          dropOtherQueries();
+          updateSession(sessionRes);
+        }
+      } catch (err) {
+        console.error('Firebase redirect result processing error:', err);
+      }
+    }
+
+    void handleRedirectResult();
+
+    return () => {
+      mounted = false;
+    };
+  }, [dropOtherQueries, updateSession]);
+
   const signIn = useCallback(
     async (input: LoginInput) => {
       // 1. First attempt Firebase Authentication (outside test environment)
@@ -190,35 +243,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [dropOtherQueries, updateSession],
   );
 
-  const signInWithGoogle = useCallback(async (targetAccountType?: AccountType) => {
-    const { signInWithPopup } = await import('firebase/auth');
-    const { auth, googleProvider } = await import('@/lib/firebase');
-    const { syncUserToFirestore } = await import('@/lib/firebaseUser');
+  const signInWithGoogle = useCallback(
+    async (targetAccountType?: AccountType, useRedirect = false) => {
+      const { signInWithPopup, signInWithRedirect } = await import('firebase/auth');
+      const { auth, googleProvider } = await import('@/lib/firebase');
+      const { syncUserToFirestore } = await import('@/lib/firebaseUser');
 
-    const result = await signInWithPopup(auth, googleProvider);
-    const fbUser = result.user;
+      if (useRedirect) {
+        if (targetAccountType) {
+          try {
+            localStorage.setItem('ims.google.targetAccountType', targetAccountType);
+          } catch {}
+        }
+        await signInWithRedirect(auth, googleProvider);
+        return null;
+      }
 
-    // Store user in Firestore
-    await syncUserToFirestore({
-      uid: fbUser.uid,
-      email: fbUser.email || '',
-      name: fbUser.displayName,
-      photoURL: fbUser.photoURL,
-      accountType: targetAccountType,
-    });
+      const result = await signInWithPopup(auth, googleProvider);
+      const fbUser = result.user;
 
-    // Exchange with backend session
-    const sessionRes = await api.post<SessionResponse>('/auth/firebase-login', {
-      email: fbUser.email,
-      name: fbUser.displayName,
-      uid: fbUser.uid,
-      accountType: targetAccountType,
-    });
+      // Store user in Firestore
+      await syncUserToFirestore({
+        uid: fbUser.uid,
+        email: fbUser.email || '',
+        name: fbUser.displayName,
+        photoURL: fbUser.photoURL,
+        accountType: targetAccountType,
+      });
 
-    dropOtherQueries();
-    updateSession(sessionRes);
-    return sessionRes;
-  }, [dropOtherQueries, updateSession]);
+      // Exchange with backend session
+      const sessionRes = await api.post<SessionResponse>('/auth/firebase-login', {
+        email: fbUser.email,
+        name: fbUser.displayName,
+        uid: fbUser.uid,
+        accountType: targetAccountType,
+      });
+
+      dropOtherQueries();
+      updateSession(sessionRes);
+      return sessionRes;
+    },
+    [dropOtherQueries, updateSession],
+  );
 
   const signOut = useCallback(async () => {
     try {

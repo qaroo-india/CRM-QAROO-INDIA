@@ -24,6 +24,8 @@ export const securityHeaders = helmet({
       frameAncestors: ["'none'"],
     },
   },
+  // Allow OAuth popups (Firebase Google Sign-In) without breaking opener isolation
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
   // HSTS only makes sense once the API is served over HTTPS.
   strictTransportSecurity: env.NODE_ENV === 'production',
 });

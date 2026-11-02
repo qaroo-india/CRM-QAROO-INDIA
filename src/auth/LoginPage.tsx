@@ -79,6 +79,7 @@ export function LoginPage() {
   const copy = AUDIENCES[audience];
   const [formError, setFormError] = useState<string | null>(null);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [redirectFallback, setRedirectFallback] = useState(false);
 
   const form = useZodForm(loginSchema, { defaultValues: { email: params.get('email') ?? '', password: '' } });
 
@@ -87,6 +88,7 @@ export function LoginPage() {
   const choose = (value: Audience) => {
     remember(value);
     setFormError(null);
+    setRedirectFallback(false);
     setParams(
       (current) => {
         const p = new URLSearchParams(current);
@@ -99,6 +101,7 @@ export function LoginPage() {
 
   const onSubmit = form.handleSubmit(async (values) => {
     setFormError(null);
+    setRedirectFallback(false);
     try {
       await auth.signIn(values);
       remember(audience);
@@ -108,17 +111,47 @@ export function LoginPage() {
     }
   });
 
-  const handleGoogleSignIn = async () => {
+  const handleGoogleSignIn = async (useRedirect = false) => {
     setFormError(null);
     setGoogleLoading(true);
     try {
-      await auth.signInWithGoogle(audience === 'office' ? 'team' : audience);
-      remember(audience);
-      navigate(next, { replace: true });
+      const res = await auth.signInWithGoogle(audience === 'office' ? 'team' : audience, useRedirect);
+      if (res) {
+        remember(audience);
+        navigate(next, { replace: true });
+      }
     } catch (error: any) {
       if (error?.code === 'auth/popup-closed-by-user') {
         return;
       }
+
+      const errorCode = error?.code || '';
+      const errorRaw = String(error?.customData?._tokenResponse?.error?.message || error?.message || '');
+      const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'your domain';
+
+      if (errorRaw.includes('UNAUTHORIZED_DOMAIN') || errorCode === 'auth/unauthorized-domain') {
+        setRedirectFallback(false);
+        setFormError(
+          `Domain not authorized in Firebase: "${currentHost}". Please add "${currentHost}" in Firebase Console > Authentication > Settings > Authorized domains.`,
+        );
+        return;
+      }
+
+      if (errorCode === 'auth/popup-blocked') {
+        setRedirectFallback(true);
+        setFormError('Popup was blocked by your browser. Please allow popups or try the redirect option below.');
+        return;
+      }
+
+      if (errorCode === 'auth/internal-error') {
+        setRedirectFallback(true);
+        setFormError(
+          `Google sign-in internal error. Ensure "${currentHost}" is in Firebase Console Authorized Domains, or try redirect sign-in below.`,
+        );
+        return;
+      }
+
+      setRedirectFallback(false);
       setFormError(error instanceof Error ? error.message : 'Google sign-in failed. Please try again.');
     } finally {
       setGoogleLoading(false);
@@ -151,8 +184,20 @@ export function LoginPage() {
           </div>
         )}
         {formError && (
-          <div role="alert" className="rounded-control border border-danger/35 bg-danger-soft px-3 py-2.5 text-sm text-danger">
-            {formError}
+          <div role="alert" className="space-y-2 rounded-control border border-danger/35 bg-danger-soft px-3 py-2.5 text-sm text-danger">
+            <div>{formError}</div>
+            {redirectFallback && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="w-full text-xs font-normal"
+                loading={googleLoading}
+                onClick={() => handleGoogleSignIn(true)}
+              >
+                Sign in with Google via redirect instead
+              </Button>
+            )}
           </div>
         )}
         <Field label="Email" error={form.formState.errors.email?.message} required>
@@ -187,7 +232,7 @@ export function LoginPage() {
           variant="secondary"
           className="w-full gap-2"
           loading={googleLoading}
-          onClick={handleGoogleSignIn}
+          onClick={() => handleGoogleSignIn(false)}
         >
           <svg className="size-4 shrink-0" viewBox="0 0 24 24">
             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
