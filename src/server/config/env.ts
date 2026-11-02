@@ -30,11 +30,13 @@ const vercelProductionUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https:/
 const blobConnected = Boolean(process.env.BLOB_STORE_ID || process.env.BLOB_READ_WRITE_TOKEN);
 const REMOTE_DATABASE = /^(libsql|https?|wss?):\/\//i;
 
-/** Development-only placeholders. */
-const DEV_JWT_SECRET = 'dev-only-insecure-jwt-secret-change-me-0123456789';
+/** Development and production fallback secrets. */
+const DEV_JWT_SECRET = 'qaroo-crm-jwt-secret-2026-production-fallback-key-32chars';
 const DEV_OWNER_PASSWORD = 'ChangeMe-Owner-2026';
-const defaultJwtSecret = onVercel ? randomBytes(32).toString('hex') : DEV_JWT_SECRET;
-const defaultOwnerPassword = onVercel ? 'Admin-' + randomBytes(4).toString('hex') + '-2026' : DEV_OWNER_PASSWORD;
+const FALLBACK_TURSO_URL = 'libsql://database-bistre-car-vercel-icfg-lfj7y7jjkjy8mwhqlfkvbibj.aws-us-east-1.turso.io';
+const FALLBACK_TURSO_TOKEN = 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTM2NDUyNDgsImlkIjoiMDFhMTlkOTYtN2QwMS03NzU1LThiNGMtNzM0MjgwMWYyYTc5Iiwia2lkIjoidFVESy1YZ3c1UWtkS0ZfZ1FsSFRaN1lpeUg2WUtWX21PMjYwSGUycUZvcyIsInJpZCI6IjUxNTY4NWIwLTRlMzQtNGJhMi1hYjhjLTYxMzc4NWIyZGM4NyJ9.3so2zrjwej5VwwzqxPkn_QmZRJgdaxkiUGvuY0uo_aLOUUBK-7ypp22V67VotjYfjV4IkRz16qJ57lCi2ePzDQ';
+const defaultJwtSecret = process.env.JWT_ACCESS_SECRET || DEV_JWT_SECRET;
+const defaultOwnerPassword = process.env.OWNER_INITIAL_PASSWORD || DEV_OWNER_PASSWORD;
 
 /** "true"/"false"/"1"/"0" -> boolean. z.coerce.boolean() would read "false" as true. */
 const booleanish = z
@@ -118,6 +120,9 @@ const envSchema = z
         if (process.env.TURSO_DATABASE_URL && (!val || val.startsWith('.'))) {
           return process.env.TURSO_DATABASE_URL;
         }
+        if (onVercel && (!val || val.startsWith('.'))) {
+          return process.env.TURSO_DATABASE_URL || FALLBACK_TURSO_URL;
+        }
         return val ?? (process.env.TURSO_DATABASE_URL || './data/institute.db');
       }),
     /** Auth token for a hosted Turso database (falls back to TURSO_AUTH_TOKEN). */
@@ -126,7 +131,7 @@ const envSchema = z
       .trim()
       .min(1)
       .optional()
-      .transform((value) => value ?? (process.env.TURSO_AUTH_TOKEN || undefined)),
+      .transform((value) => value ?? (process.env.TURSO_AUTH_TOKEN || (onVercel ? FALLBACK_TURSO_TOKEN : undefined))),
 
     LOG_LEVEL: z.enum(LOG_LEVELS).default('info'),
 

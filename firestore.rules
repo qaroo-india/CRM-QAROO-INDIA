@@ -1,0 +1,874 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model & Architecture: CRM-QAROO (Institute Management System)
+// ===============================================================
+//
+// 1. /users/{userId}
+//    Document ID: Firebase Auth UID
+//    Fields:
+//      - uid: string (required, immutable) - Auth UID
+//      - email: string (required, email format) - Lowercase email address
+//      - name: string (required, 1-100 chars) - Full name
+//      - role: string (required, ['owner', 'staff', 'trainer', 'faculty', 'student'])
+//      - accountType: string (required, ['team', 'faculty', 'student'])
+//      - phone: string (optional, <= 30 chars)
+//      - photoURL: string (optional, <= 1000 chars)
+//      - permissions: list (optional, <= 100 permission strings)
+//      - isActive: bool (optional)
+//      - createdAt: timestamp (optional, immutable)
+//      - lastLoginAt: timestamp (optional)
+//
+// 2. /institute_settings/{settingId}
+//    Document ID: 'default' or custom ID
+//    Fields:
+//      - name: string (required, 1-100 chars)
+//      - timezone: string (required, 1-50 chars)
+//      - currency: string (required, 1-10 chars)
+//      - locale: string (required, 1-20 chars)
+//      - fiscalYearStartMonth: number (optional, 1-12)
+//      - weekStartsOn: number (optional, 0-6)
+//      - reportRecipients: list (optional, <= 50 strings)
+//
+// 3. /courses/{courseId}
+//    Fields:
+//      - code: string (required, 1-50 chars)
+//      - name: string (required, 1-200 chars)
+//      - standardFeeMinor: number (required, non-negative)
+//      - description: string (optional, <= 2000 chars)
+//      - modules: list (optional, <= 100 strings)
+//      - isActive: bool (optional)
+//
+// 4. /batches/{batchId}
+//    Fields:
+//      - batchCode: string (required, 1-50 chars)
+//      - name: string (required, 1-200 chars)
+//      - courseId: string (required, 1-100 chars)
+//      - capacity: number (required, 1-1000)
+//      - trainerId: string (optional, <= 100 chars)
+//      - studentUids: list (optional, <= 1000 strings)
+//      - status: string (optional, 1-30 chars)
+//
+// 5. /students/{studentId}
+//    Fields:
+//      - studentCode: string (required, 1-50 chars)
+//      - fullName: string (required, 1-200 chars)
+//      - phone: string (required, 1-30 chars)
+//      - email: string (optional, <= 256 chars)
+//      - userId: string (optional, linked Firebase Auth UID)
+//      - status: string (optional, 1-30 chars)
+//
+// 6. /admissions/{admissionId}
+//    Fields:
+//      - admissionNumber: string (required, 1-50 chars)
+//      - studentId: string (required, 1-100 chars)
+//      - courseId: string (required, 1-100 chars)
+//      - listFeeMinor: number (required, non-negative)
+//      - agreedFeeMinor: number (required, non-negative)
+//      - userId: string (optional, linked UID)
+//      - status: string (optional, 1-30 chars)
+//
+// 7. /leads/{leadId} and /lead_activities/{activityId}
+//    Fields:
+//      - leadCode: string (required, 1-50 chars)
+//      - name: string (required, 1-200 chars)
+//      - phone: string (required, 1-30 chars)
+//      - status: string (optional, 1-30 chars)
+//
+// 8. /payments/{paymentId} and /fee_plans/{planId}
+//    Fields (payments):
+//      - receiptNumber: string (required, 1-50 chars)
+//      - studentId: string (required, 1-100 chars)
+//      - admissionId: string (required, 1-100 chars)
+//      - amountMinor: number (required, positive)
+//      - direction: string (required, ['in', 'out', 'refund'])
+//      - paymentType: string (required, 1-50 chars)
+//      - method: string (required, 1-50 chars)
+//      - status: string (required, ['succeeded', 'pending', 'failed', 'reversed'])
+//      - userId: string (optional, linked UID)
+//
+// 9. /attendance/{attendanceId}
+//    Fields:
+//      - studentId: string (required, 1-100 chars)
+//      - status: string (required, ['present', 'absent', 'late', 'excused'])
+//      - batchId: string (optional, 1-100 chars)
+//      - userId: string (optional, linked UID)
+//
+// 10. /exams/{examId} and /exam_results/{resultId}
+//     Fields (exams):
+//       - title: string (required, 1-200 chars)
+//       - durationMinutes: number (required, 1-600)
+//       - totalMarks: number (required, non-negative)
+//       - status: string (required, ['draft', 'published', 'active', 'completed', 'archived'])
+//     Fields (exam_results):
+//       - examId: string (required, 1-100 chars)
+//       - studentId: string (required, 1-100 chars)
+//       - status: string (required, ['in_progress', 'submitted', 'evaluated', 'graded'])
+//       - userId: string (optional, linked UID)
+//
+// 11. /materials/{materialId}
+//     Fields:
+//       - title: string (required, 1-200 chars)
+//       - courseId: string (required, 1-100 chars)
+//       - isPublished: bool (required)
+//
+// 12. /certificates/{certificateId}
+//     Fields:
+//       - studentId: string (required, 1-100 chars)
+//       - admissionId: string (required, 1-100 chars)
+//       - courseId: string (required, 1-100 chars)
+//       - status: string (required, ['requested', 'approved', 'issued', 'revoked', 'rejected'])
+//
+// 13. /notifications/{notificationId}
+//     Fields:
+//       - userId: string (required, matches recipient UID)
+//       - type: string (required, 1-50 chars)
+//       - title: string (required, 1-200 chars)
+//       - readAt: timestamp (optional)
+//       - isRead: bool (optional)
+//
+// 14. /audit_logs/{logId}
+//     Fields:
+//       - action: string (required, 1-100 chars)
+//       - entityType: string (required, 1-100 chars)
+//       - summary: string (required, 1-500 chars)
+//       - actorId: string (optional, UID)
+//
+// 15. /tasks/{taskId} and /leave_requests/{leaveId}
+//     Fields (tasks):
+//       - title: string (required, 1-200 chars)
+//       - priority: string (required, ['low', 'medium', 'high', 'urgent'])
+//       - status: string (required, ['todo', 'in_progress', 'review', 'done', 'cancelled'])
+//     Fields (leave_requests):
+//       - userId: string (required, UID)
+//       - type: string (required, 1-50 chars)
+//       - dayCount: number (required, 1-365)
+//       - status: string (required, ['pending', 'approved', 'rejected', 'cancelled'])
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Core Helper Functions & Role-Based Access Control (RBAC)
+    // ===============================================================
+
+    // Check if the request is from an authenticated user
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Retrieve user data record from Firestore
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Check if user is owner / administrator
+    // Authoritative sources: verified bootstrap emails, custom auth claims, or user document role
+    function isOwner() {
+      return isAuthenticated() && (
+        (request.auth.token.email in ['admin@qaroo.in', 'owner@institute.local']) ||
+        (request.auth.token.role == 'owner') ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+          getUserData().get('role', '') == 'owner' ||
+          getUserData().get('email', '') in ['admin@qaroo.in', 'owner@institute.local']
+        ))
+      );
+    }
+
+    // Check if user has role 'staff' or 'owner'
+    function isStaff() {
+      return isOwner() || (
+        isAuthenticated() && (
+          request.auth.token.role == 'staff' ||
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+           getUserData().get('role', '') in ['staff', 'owner'])
+        )
+      );
+    }
+
+    // Check if user has role 'faculty' or 'trainer'
+    function isFaculty() {
+      return isAuthenticated() && (
+        request.auth.token.role in ['faculty', 'trainer'] ||
+        request.auth.token.accountType == 'faculty' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+          getUserData().get('role', '') in ['faculty', 'trainer'] ||
+          getUserData().get('accountType', '') == 'faculty'
+        ))
+      );
+    }
+
+    // Check if user has accountType 'student' or role 'student'
+    function isStudent() {
+      return isAuthenticated() && (
+        request.auth.token.accountType == 'student' ||
+        request.auth.token.role == 'student' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+          getUserData().get('accountType', '') == 'student' ||
+          getUserData().get('role', '') == 'student'
+        ))
+      );
+    }
+
+    // Check if caller matches specific user ID
+    function isSelf(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // ===============================================================
+    // Generic Validation Helper Functions
+    // ===============================================================
+
+    function isValidString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    function isValidOptionalString(data, field, minLen, maxLen) {
+      return !(field in data) ||
+        (data[field] is string && data[field].size() >= minLen && data[field].size() <= maxLen);
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$');
+    }
+
+    function isValidList(val, maxSize) {
+      return val is list && val.size() <= maxSize;
+    }
+
+    function isPositive(val) {
+      return val is number && val > 0;
+    }
+
+    function isNonNegative(val) {
+      return val is number && val >= 0;
+    }
+
+    // Enforce that immutable fields are not changed during update
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // ===============================================================
+    // Domain Validator Functions (Used in BOTH Create and Update)
+    // ===============================================================
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'name', 'role', 'accountType']) &&
+        isValidString(data.uid, 1, 128) &&
+        isValidEmail(data.email) && data.email.size() <= 256 &&
+        isValidString(data.name, 1, 100) &&
+        data.role in ['owner', 'staff', 'trainer', 'faculty', 'student'] &&
+        data.accountType in ['team', 'faculty', 'student'] &&
+        isValidOptionalString(data, 'phone', 0, 30) &&
+        isValidOptionalString(data, 'photoURL', 0, 1000) &&
+        isValidOptionalString(data, 'jobRole', 0, 50) &&
+        isValidOptionalString(data, 'staffCode', 0, 50) &&
+        isValidOptionalString(data, 'designation', 0, 100) &&
+        isValidOptionalString(data, 'department', 0, 100) &&
+        isValidOptionalString(data, 'bio', 0, 1000) &&
+        (!('permissions' in data) || isValidList(data.permissions, 100)) &&
+        (!('isActive' in data) || data.isActive is bool);
+    }
+
+    function isValidInstituteSettings(data) {
+      return data.keys().hasAll(['name', 'timezone', 'currency', 'locale']) &&
+        isValidString(data.name, 1, 100) &&
+        isValidString(data.timezone, 1, 50) &&
+        isValidString(data.currency, 1, 10) &&
+        isValidString(data.locale, 1, 20) &&
+        isValidOptionalString(data, 'legalName', 0, 150) &&
+        isValidOptionalString(data, 'tagline', 0, 255) &&
+        isValidOptionalString(data, 'logoUrl', 0, 1000) &&
+        isValidOptionalString(data, 'email', 0, 256) &&
+        isValidOptionalString(data, 'phone', 0, 30) &&
+        isValidOptionalString(data, 'website', 0, 255) &&
+        isValidOptionalString(data, 'address', 0, 500) &&
+        isValidOptionalString(data, 'taxId', 0, 50) &&
+        (!('fiscalYearStartMonth' in data) || (data.fiscalYearStartMonth is number && data.fiscalYearStartMonth >= 1 && data.fiscalYearStartMonth <= 12)) &&
+        (!('weekStartsOn' in data) || (data.weekStartsOn is number && data.weekStartsOn >= 0 && data.weekStartsOn <= 6)) &&
+        (!('expenseApprovalRequired' in data) || data.expenseApprovalRequired is bool) &&
+        (!('reportRecipients' in data) || isValidList(data.reportRecipients, 50));
+    }
+
+    function isValidCourse(data) {
+      return data.keys().hasAll(['code', 'name', 'standardFeeMinor']) &&
+        isValidString(data.code, 1, 50) &&
+        isValidString(data.name, 1, 200) &&
+        isNonNegative(data.standardFeeMinor) &&
+        isValidOptionalString(data, 'description', 0, 2000) &&
+        (!('durationWeeks' in data) || (data.durationWeeks is number && data.durationWeeks > 0)) &&
+        (!('modules' in data) || isValidList(data.modules, 100)) &&
+        (!('defaultAdmissionFeeMinor' in data) || isNonNegative(data.defaultAdmissionFeeMinor)) &&
+        (!('defaultInstalmentCount' in data) || (data.defaultInstalmentCount is number && data.defaultInstalmentCount >= 0 && data.defaultInstalmentCount <= 60)) &&
+        (!('isActive' in data) || data.isActive is bool);
+    }
+
+    function isValidBatch(data) {
+      return data.keys().hasAll(['batchCode', 'name', 'courseId', 'capacity']) &&
+        isValidString(data.batchCode, 1, 50) &&
+        isValidString(data.name, 1, 200) &&
+        isValidString(data.courseId, 1, 100) &&
+        data.capacity is number && data.capacity > 0 && data.capacity <= 1000 &&
+        isValidOptionalString(data, 'trainerId', 0, 100) &&
+        isValidOptionalString(data, 'schedule', 0, 500) &&
+        isValidOptionalString(data, 'status', 1, 30) &&
+        isValidOptionalString(data, 'notes', 0, 2000) &&
+        (!('studentUids' in data) || isValidList(data.studentUids, 1000)) &&
+        (!('enrolledStudents' in data) || isValidList(data.enrolledStudents, 1000));
+    }
+
+    function isValidStudent(data) {
+      return data.keys().hasAll(['studentCode', 'fullName', 'phone']) &&
+        isValidString(data.studentCode, 1, 50) &&
+        isValidString(data.fullName, 1, 200) &&
+        isValidString(data.phone, 1, 30) &&
+        isValidOptionalString(data, 'email', 0, 256) &&
+        isValidOptionalString(data, 'phoneNormalized', 0, 30) &&
+        isValidOptionalString(data, 'address', 0, 500) &&
+        isValidOptionalString(data, 'city', 0, 100) &&
+        isValidOptionalString(data, 'state', 0, 100) &&
+        isValidOptionalString(data, 'pincode', 0, 20) &&
+        isValidOptionalString(data, 'gender', 0, 20) &&
+        isValidOptionalString(data, 'qualification', 0, 100) &&
+        isValidOptionalString(data, 'guardianName', 0, 100) &&
+        isValidOptionalString(data, 'guardianPhone', 0, 30) &&
+        isValidOptionalString(data, 'status', 1, 30) &&
+        isValidOptionalString(data, 'userId', 0, 128) &&
+        isValidOptionalString(data, 'notes', 0, 2000);
+    }
+
+    function isValidAdmission(data) {
+      return data.keys().hasAll(['admissionNumber', 'studentId', 'courseId', 'listFeeMinor', 'agreedFeeMinor']) &&
+        isValidString(data.admissionNumber, 1, 50) &&
+        isValidString(data.studentId, 1, 100) &&
+        isValidString(data.courseId, 1, 100) &&
+        isNonNegative(data.listFeeMinor) &&
+        isNonNegative(data.agreedFeeMinor) &&
+        (!('discountMinor' in data) || isNonNegative(data.discountMinor)) &&
+        (!('admissionFeeRequiredMinor' in data) || isNonNegative(data.admissionFeeRequiredMinor)) &&
+        isValidOptionalString(data, 'userId', 0, 128) &&
+        isValidOptionalString(data, 'leadId', 0, 100) &&
+        isValidOptionalString(data, 'counsellorId', 0, 100) &&
+        isValidOptionalString(data, 'status', 1, 30) &&
+        isValidOptionalString(data, 'batchStatus', 1, 30) &&
+        isValidOptionalString(data, 'notes', 0, 2000);
+    }
+
+    function isValidLead(data) {
+      return data.keys().hasAll(['leadCode', 'name', 'phone']) &&
+        isValidString(data.leadCode, 1, 50) &&
+        isValidString(data.name, 1, 200) &&
+        isValidString(data.phone, 1, 30) &&
+        isValidOptionalString(data, 'email', 0, 256) &&
+        isValidOptionalString(data, 'phoneNormalized', 0, 30) &&
+        isValidOptionalString(data, 'leadSourceId', 0, 100) &&
+        isValidOptionalString(data, 'interestedCourseId', 0, 100) &&
+        isValidOptionalString(data, 'counsellorId', 0, 100) &&
+        isValidOptionalString(data, 'priority', 1, 30) &&
+        isValidOptionalString(data, 'status', 1, 30) &&
+        isValidOptionalString(data, 'notes', 0, 2000) &&
+        isValidOptionalString(data, 'lostReason', 0, 500);
+    }
+
+    function isValidLeadActivity(data) {
+      return data.keys().hasAll(['leadId', 'type']) &&
+        isValidString(data.leadId, 1, 100) &&
+        isValidString(data.type, 1, 50) &&
+        isValidOptionalString(data, 'note', 0, 2000) &&
+        isValidOptionalString(data, 'fromStatus', 0, 50) &&
+        isValidOptionalString(data, 'toStatus', 0, 50) &&
+        isValidOptionalString(data, 'actorId', 0, 128);
+    }
+
+    function isValidPayment(data) {
+      return data.keys().hasAll(['receiptNumber', 'studentId', 'admissionId', 'amountMinor', 'direction', 'paymentType', 'method', 'status']) &&
+        isValidString(data.receiptNumber, 1, 50) &&
+        isValidString(data.studentId, 1, 100) &&
+        isValidString(data.admissionId, 1, 100) &&
+        isPositive(data.amountMinor) &&
+        data.direction in ['in', 'out', 'refund'] &&
+        isValidString(data.paymentType, 1, 50) &&
+        isValidString(data.method, 1, 50) &&
+        data.status in ['succeeded', 'pending', 'failed', 'reversed'] &&
+        isValidOptionalString(data, 'userId', 0, 128) &&
+        isValidOptionalString(data, 'referenceNumber', 0, 100) &&
+        isValidOptionalString(data, 'notes', 0, 2000) &&
+        isValidOptionalString(data, 'reversalReason', 0, 500) &&
+        isValidOptionalString(data, 'recordedById', 0, 128);
+    }
+
+    function isValidFeePlan(data) {
+      return data.keys().hasAll(['admissionId', 'planType', 'totalMinor', 'status']) &&
+        isValidString(data.admissionId, 1, 100) &&
+        isValidString(data.planType, 1, 50) &&
+        isNonNegative(data.totalMinor) &&
+        data.status in ['draft', 'active', 'completed', 'superseded', 'cancelled'] &&
+        isValidOptionalString(data, 'studentId', 0, 100) &&
+        isValidOptionalString(data, 'userId', 0, 128) &&
+        (!('admissionFeeMinor' in data) || isNonNegative(data.admissionFeeMinor)) &&
+        (!('instalmentCount' in data) || (data.instalmentCount is number && data.instalmentCount >= 0 && data.instalmentCount <= 60)) &&
+        isValidOptionalString(data, 'notes', 0, 2000);
+    }
+
+    function isValidAttendance(data) {
+      return data.keys().hasAll(['studentId', 'status']) &&
+        isValidString(data.studentId, 1, 100) &&
+        data.status in ['present', 'absent', 'late', 'excused'] &&
+        isValidOptionalString(data, 'batchId', 0, 100) &&
+        isValidOptionalString(data, 'attendanceSessionId', 0, 100) &&
+        isValidOptionalString(data, 'admissionId', 0, 100) &&
+        isValidOptionalString(data, 'userId', 0, 128) &&
+        (!('minutesLate' in data) || (data.minutesLate is number && data.minutesLate >= 0 && data.minutesLate <= 720)) &&
+        isValidOptionalString(data, 'remark', 0, 500) &&
+        isValidOptionalString(data, 'takenById', 0, 128);
+    }
+
+    function isValidExam(data) {
+      return data.keys().hasAll(['title', 'durationMinutes', 'totalMarks', 'status']) &&
+        isValidString(data.title, 1, 200) &&
+        data.durationMinutes is number && data.durationMinutes > 0 && data.durationMinutes <= 600 &&
+        isNonNegative(data.totalMarks) &&
+        data.status in ['draft', 'published', 'active', 'completed', 'archived'] &&
+        isValidOptionalString(data, 'kind', 1, 50) &&
+        isValidOptionalString(data, 'batchId', 0, 100) &&
+        isValidOptionalString(data, 'courseId', 0, 100) &&
+        isValidOptionalString(data, 'instructions', 0, 5000) &&
+        (!('passPercent' in data) || (data.passPercent is number && data.passPercent >= 0 && data.passPercent <= 100)) &&
+        (!('maxAttempts' in data) || (data.maxAttempts is number && data.maxAttempts >= 1 && data.maxAttempts <= 20)) &&
+        (!('shuffleQuestions' in data) || data.shuffleQuestions is bool) &&
+        (!('questions' in data) || isValidList(data.questions, 200));
+    }
+
+    function isValidExamResult(data) {
+      return data.keys().hasAll(['examId', 'studentId', 'status']) &&
+        isValidString(data.examId, 1, 100) &&
+        isValidString(data.studentId, 1, 100) &&
+        data.status in ['in_progress', 'submitted', 'evaluated', 'graded'] &&
+        isValidOptionalString(data, 'userId', 0, 128) &&
+        (!('attemptNumber' in data) || (data.attemptNumber is number && data.attemptNumber >= 1)) &&
+        (!('score' in data) || isNonNegative(data.score)) &&
+        (!('totalMarks' in data) || isNonNegative(data.totalMarks)) &&
+        (!('percentBps' in data) || (data.percentBps is number && data.percentBps >= 0 && data.percentBps <= 10000)) &&
+        (!('passed' in data) || data.passed is bool) &&
+        isValidOptionalString(data, 'feedback', 0, 2000) &&
+        isValidOptionalString(data, 'evaluatedById', 0, 128) &&
+        (!('answers' in data) || (data.answers is list || data.answers is map));
+    }
+
+    function isValidMaterial(data) {
+      return data.keys().hasAll(['title', 'courseId', 'isPublished']) &&
+        isValidString(data.title, 1, 200) &&
+        isValidString(data.courseId, 1, 100) &&
+        data.isPublished is bool &&
+        isValidOptionalString(data, 'description', 0, 2000) &&
+        isValidOptionalString(data, 'kind', 1, 50) &&
+        isValidOptionalString(data, 'batchId', 0, 100) &&
+        isValidOptionalString(data, 'fileKey', 0, 500) &&
+        isValidOptionalString(data, 'fileName', 0, 255) &&
+        isValidOptionalString(data, 'fileMime', 0, 100) &&
+        isValidOptionalString(data, 'externalUrl', 0, 1000) &&
+        (!('fileSize' in data) || (data.fileSize is number && data.fileSize >= 0)) &&
+        isValidOptionalString(data, 'uploadedById', 0, 128);
+    }
+
+    function isValidCertificate(data) {
+      return data.keys().hasAll(['studentId', 'admissionId', 'courseId', 'status']) &&
+        isValidString(data.studentId, 1, 100) &&
+        isValidString(data.admissionId, 1, 100) &&
+        isValidString(data.courseId, 1, 100) &&
+        data.status in ['requested', 'approved', 'issued', 'revoked', 'rejected'] &&
+        isValidOptionalString(data, 'referenceNumber', 0, 100) &&
+        isValidOptionalString(data, 'requestNote', 0, 1000) &&
+        isValidOptionalString(data, 'reviewNote', 0, 1000) &&
+        isValidOptionalString(data, 'fileKey', 0, 500) &&
+        isValidOptionalString(data, 'requestedById', 0, 128) &&
+        isValidOptionalString(data, 'reviewedById', 0, 128);
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['userId', 'type', 'title']) &&
+        isValidString(data.userId, 1, 128) &&
+        isValidString(data.type, 1, 50) &&
+        isValidString(data.title, 1, 200) &&
+        isValidOptionalString(data, 'severity', 1, 30) &&
+        isValidOptionalString(data, 'body', 0, 2000) &&
+        isValidOptionalString(data, 'entityType', 0, 50) &&
+        isValidOptionalString(data, 'entityId', 0, 100) &&
+        isValidOptionalString(data, 'link', 0, 500) &&
+        isValidOptionalString(data, 'dedupeKey', 0, 150) &&
+        (!('isRead' in data) || data.isRead is bool);
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['action', 'entityType', 'summary']) &&
+        isValidString(data.action, 1, 100) &&
+        isValidString(data.entityType, 1, 100) &&
+        isValidString(data.summary, 1, 500) &&
+        isValidOptionalString(data, 'actorId', 0, 128) &&
+        isValidOptionalString(data, 'entityId', 0, 100) &&
+        isValidOptionalString(data, 'requestId', 0, 100) &&
+        isValidOptionalString(data, 'ip', 0, 50) &&
+        (!('before' in data) || data.before is map) &&
+        (!('after' in data) || data.after is map);
+    }
+
+    function isValidTask(data) {
+      return data.keys().hasAll(['title', 'priority', 'status']) &&
+        isValidString(data.title, 1, 200) &&
+        data.priority in ['low', 'medium', 'high', 'urgent'] &&
+        data.status in ['todo', 'in_progress', 'review', 'done', 'cancelled'] &&
+        isValidOptionalString(data, 'details', 0, 2000) &&
+        isValidOptionalString(data, 'batchId', 0, 100) &&
+        isValidOptionalString(data, 'assignedToId', 0, 128) &&
+        isValidOptionalString(data, 'createdById', 0, 128) &&
+        isValidOptionalString(data, 'attachmentKey', 0, 500) &&
+        isValidOptionalString(data, 'attachmentName', 0, 255);
+    }
+
+    function isValidLeaveRequest(data) {
+      return data.keys().hasAll(['userId', 'type', 'dayCount', 'status']) &&
+        isValidString(data.userId, 1, 128) &&
+        data.type in ['casual', 'sick', 'earned', 'unpaid', 'maternity', 'paternity', 'bereavement', 'other'] &&
+        data.dayCount is number && data.dayCount >= 1 && data.dayCount <= 365 &&
+        data.status in ['pending', 'approved', 'rejected', 'cancelled'] &&
+        isValidOptionalString(data, 'reason', 0, 1000) &&
+        isValidOptionalString(data, 'reviewedById', 0, 128) &&
+        isValidOptionalString(data, 'reviewNote', 0, 1000);
+    }
+
+    // ===============================================================
+    // Entity-Specific Identity Link Checkers
+    // ===============================================================
+
+    function isStudentAdmission(admissionDoc) {
+      return isAuthenticated() && (
+        admissionDoc.get('userId', '') == request.auth.uid ||
+        admissionDoc.studentId == request.auth.uid ||
+        (exists(/databases/$(database)/documents/students/$(admissionDoc.studentId)) &&
+         get(/databases/$(database)/documents/students/$(admissionDoc.studentId)).data.get('userId', '') == request.auth.uid)
+      );
+    }
+
+    function isStudentPayment(paymentDoc) {
+      return isAuthenticated() && (
+        paymentDoc.get('userId', '') == request.auth.uid ||
+        paymentDoc.studentId == request.auth.uid ||
+        (exists(/databases/$(database)/documents/students/$(paymentDoc.studentId)) &&
+         get(/databases/$(database)/documents/students/$(paymentDoc.studentId)).data.get('userId', '') == request.auth.uid)
+      );
+    }
+
+    function isStudentExamResult(resDoc) {
+      return isAuthenticated() && (
+        resDoc.studentId == request.auth.uid ||
+        resDoc.get('userId', '') == request.auth.uid ||
+        (exists(/databases/$(database)/documents/students/$(resDoc.studentId)) &&
+         get(/databases/$(database)/documents/students/$(resDoc.studentId)).data.get('userId', '') == request.auth.uid)
+      );
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    // 1. Users Collection
+    // Users can read their own profile; owners/staff can read and manage all.
+    // Users cannot escalate their own role or permissions.
+    match /users/{userId} {
+      allow get: if isSelf(userId) || isStaff();
+      allow list: if isStaff();
+
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (
+        isStaff() ||
+        (isSelf(userId) && (
+          request.auth.token.email in ['admin@qaroo.in', 'owner@institute.local'] ?
+            request.resource.data.role == 'owner' :
+            (request.resource.data.role in ['student', 'trainer'] &&
+             request.resource.data.accountType in ['student', 'faculty'] &&
+             (!('permissions' in request.resource.data) || request.resource.data.permissions.size() == 0))
+        ))
+      );
+
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (
+        isOwner() ||
+        (isStaff() && resource.data.role != 'owner' && request.resource.data.role != 'owner') ||
+        (isSelf(userId) &&
+         areImmutableFieldsUnchanged(['uid', 'email', 'role', 'accountType', 'permissions', 'createdAt']) &&
+         request.resource.data.role == resource.data.role &&
+         request.resource.data.accountType == resource.data.accountType)
+      );
+
+      allow delete: if isOwner();
+    }
+
+    // 2. Institute Settings Collection
+    // Authenticated users can read institute settings; only owners can write.
+    match /institute_settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isOwner() && isValidInstituteSettings(request.resource.data);
+      allow delete: if false;
+    }
+
+    // 3. Courses Collection
+    // Authenticated users can read courses; staff/owners can create, update, delete.
+    match /courses/{courseId} {
+      allow read: if isAuthenticated();
+      allow create: if isStaff() && isValidCourse(request.resource.data);
+      allow update: if isStaff() && isValidCourse(request.resource.data) &&
+                    areImmutableFieldsUnchanged(['id', 'code', 'createdAt', 'createdById']);
+      allow delete: if isStaff();
+    }
+
+    // 4. Batches Collection
+    // Authenticated staff/faculty can read and write; enrolled students can read.
+    match /batches/{batchId} {
+      allow read: if isStaff() || isFaculty() || (isAuthenticated() && (
+        (request.auth.uid in resource.data.get('studentUids', [])) ||
+        (request.auth.uid in resource.data.get('enrolledStudents', [])) ||
+        (isStudent() && resource.data.get('status', 'active') == 'active')
+      ));
+
+      allow create: if (isStaff() || isFaculty()) && isValidBatch(request.resource.data);
+      allow update: if (isStaff() || isFaculty()) && isValidBatch(request.resource.data) &&
+                    areImmutableFieldsUnchanged(['id', 'batchCode', 'createdAt', 'createdById']);
+      allow delete: if isStaff();
+    }
+
+    // 5. Students Collection
+    // Staff/owners can read/write; student can read their own record if linked.
+    match /students/{studentId} {
+      allow read: if isStaff() || (isAuthenticated() && (
+        resource.data.get('userId', '') == request.auth.uid ||
+        studentId == request.auth.uid
+      ));
+
+      allow create: if isStaff() && isValidStudent(request.resource.data);
+      allow update: if isStaff() && isValidStudent(request.resource.data) &&
+                    areImmutableFieldsUnchanged(['id', 'studentCode', 'createdAt', 'createdById']);
+      allow delete: if isStaff();
+    }
+
+    // 6. Admissions Collection
+    // Staff/owners can read/write; students can read their own admission.
+    match /admissions/{admissionId} {
+      allow read: if isStaff() || isStudentAdmission(resource.data);
+      allow create: if isStaff() && isValidAdmission(request.resource.data);
+      allow update: if isStaff() && isValidAdmission(request.resource.data) &&
+                    areImmutableFieldsUnchanged(['id', 'admissionNumber', 'createdAt', 'createdById']);
+      allow delete: if isStaff();
+    }
+
+    // 7. Leads and Lead Activities
+    // Staff/owners can read/write.
+    match /leads/{leadId} {
+      allow read: if isStaff();
+      allow create: if isStaff() && isValidLead(request.resource.data);
+      allow update: if isStaff() && isValidLead(request.resource.data) &&
+                    areImmutableFieldsUnchanged(['id', 'leadCode', 'createdAt', 'createdById']);
+      allow delete: if isStaff();
+    }
+
+    match /lead_activities/{activityId} {
+      allow read: if isStaff();
+      allow create: if isStaff() && isValidLeadActivity(request.resource.data);
+      allow update: if isStaff() && isValidLeadActivity(request.resource.data) &&
+                    areImmutableFieldsUnchanged(['id', 'leadId', 'actorId', 'createdAt']);
+      allow delete: if isStaff();
+    }
+
+    // 8. Payments and Fee Plans
+    // Staff/owners can read/write; students can read receipts where studentId or userId matches.
+    match /payments/{paymentId} {
+      allow read: if isStaff() || isStudentPayment(resource.data);
+      allow create: if isStaff() && isValidPayment(request.resource.data);
+      // Append-only ledger: core transaction properties remain strictly immutable
+      allow update: if isStaff() && isValidPayment(request.resource.data) &&
+                    areImmutableFieldsUnchanged(['id', 'receiptNumber', 'amountMinor', 'paymentDate', 'studentId', 'admissionId', 'createdAt', 'recordedById']);
+      allow delete: if false;
+    }
+
+    match /fee_plans/{planId} {
+      allow read: if isStaff() || (isAuthenticated() && (
+        resource.data.get('userId', '') == request.auth.uid ||
+        resource.data.get('studentId', '') == request.auth.uid ||
+        (exists(/databases/$(database)/documents/admissions/$(resource.data.admissionId)) &&
+         isStudentAdmission(get(/databases/$(database)/documents/admissions/$(resource.data.admissionId)).data))
+      ));
+      allow create: if isStaff() && isValidFeePlan(request.resource.data);
+      allow update: if isStaff() && isValidFeePlan(request.resource.data) &&
+                    areImmutableFieldsUnchanged(['id', 'admissionId', 'createdAt', 'createdById']);
+      allow delete: if isStaff();
+    }
+
+    // 9. Attendance Collection
+    // Staff/faculty can record and read; students can read their own records.
+    match /attendance/{attendanceId} {
+      allow read: if isStaff() || isFaculty() || (isAuthenticated() && (
+        resource.data.studentId == request.auth.uid ||
+        resource.data.get('userId', '') == request.auth.uid ||
+        (exists(/databases/$(database)/documents/students/$(resource.data.studentId)) &&
+         get(/databases/$(database)/documents/students/$(resource.data.studentId)).data.get('userId', '') == request.auth.uid)
+      ));
+
+      allow create: if (isStaff() || isFaculty()) && isValidAttendance(request.resource.data);
+      allow update: if (isStaff() || isFaculty()) && isValidAttendance(request.resource.data) &&
+                    areImmutableFieldsUnchanged(['id', 'studentId', 'admissionId', 'createdAt']);
+      allow delete: if isStaff();
+    }
+
+    // 10. Exams and Exam Results
+    // Faculty/staff can create and evaluate; students can read and submit attempts.
+    match /exams/{examId} {
+      allow read: if isStaff() || isFaculty() || (isAuthenticated() && resource.data.get('status', 'draft') in ['published', 'active', 'completed']);
+      allow create: if (isStaff() || isFaculty()) && isValidExam(request.resource.data);
+      allow update: if (isStaff() || isFaculty()) && isValidExam(request.resource.data) &&
+                    areImmutableFieldsUnchanged(['id', 'authorId', 'createdAt']);
+      allow delete: if isStaff() || isFaculty();
+    }
+
+    match /exam_results/{resultId} {
+      allow read: if isStaff() || isFaculty() || isStudentExamResult(resource.data);
+
+      allow create: if (
+        ((isStaff() || isFaculty()) && isValidExamResult(request.resource.data)) ||
+        (isAuthenticated() &&
+         (request.resource.data.studentId == request.auth.uid || request.resource.data.get('userId', '') == request.auth.uid) &&
+         isValidExamResult(request.resource.data) &&
+         request.resource.data.status in ['in_progress', 'submitted'] &&
+         !request.resource.data.keys().hasAny(['score', 'totalMarks', 'percentBps', 'passed', 'feedback', 'evaluatedById', 'evaluatedAt'])
+        )
+      );
+
+      allow update: if (
+        ((isStaff() || isFaculty()) && isValidExamResult(request.resource.data) &&
+         areImmutableFieldsUnchanged(['id', 'examId', 'studentId', 'createdAt'])) ||
+        (isAuthenticated() &&
+         isStudentExamResult(resource.data) &&
+         resource.data.get('status', 'in_progress') == 'in_progress' &&
+         isValidExamResult(request.resource.data) &&
+         areImmutableFieldsUnchanged(['id', 'examId', 'studentId', 'userId', 'createdAt', 'startedAt']) &&
+         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['score', 'totalMarks', 'percentBps', 'passed', 'feedback', 'evaluatedById', 'evaluatedAt'])
+        )
+      );
+
+      allow delete: if isStaff();
+    }
+
+    // 11. Study Materials Collection
+    // Faculty/staff can publish; students can read.
+    match /materials/{materialId} {
+      allow read: if isStaff() || isFaculty() || (isAuthenticated() && resource.data.get('isPublished', true) == true);
+      allow create: if (isStaff() || isFaculty()) && isValidMaterial(request.resource.data);
+      allow update: if (isStaff() || isFaculty()) && isValidMaterial(request.resource.data) &&
+                    areImmutableFieldsUnchanged(['id', 'courseId', 'createdAt', 'uploadedById']);
+      allow delete: if isStaff() || isFaculty();
+    }
+
+    // 12. Certificates Collection
+    // Publicly readable for verification; staff/owners write.
+    match /certificates/{certificateId} {
+      allow read: if true;
+      allow create: if isStaff() && isValidCertificate(request.resource.data);
+      allow update: if isStaff() && isValidCertificate(request.resource.data) &&
+                    areImmutableFieldsUnchanged(['id', 'studentId', 'admissionId', 'courseId', 'createdAt']);
+      allow delete: if isStaff();
+    }
+
+    // 13. Notifications Collection
+    // Users can read and mark read their own notifications.
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isStaff() || (isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidNotification(request.resource.data));
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid &&
+                    isValidNotification(request.resource.data) &&
+                    areImmutableFieldsUnchanged(['id', 'userId', 'type', 'title', 'body', 'link', 'createdAt']) &&
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readAt', 'isRead', 'updatedAt']);
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isStaff());
+    }
+
+    // 14. Audit Logs Collection
+    // Authenticated users/system can create; only owners/staff can read; immutable (no updates or deletes).
+    match /audit_logs/{logId} {
+      allow read: if isStaff();
+      allow create: if isAuthenticated() && isValidAuditLog(request.resource.data) && (
+        request.resource.data.get('actorId', '') == request.auth.uid || isStaff()
+      );
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // 15. Tasks & Leave Requests
+    // Staff/owners can manage; users can manage their own leave requests.
+    match /tasks/{taskId} {
+      allow read: if isStaff() || (isAuthenticated() && (
+        resource.data.get('assignedToId', '') == request.auth.uid ||
+        resource.data.get('createdById', '') == request.auth.uid
+      ));
+      allow create: if isStaff() && isValidTask(request.resource.data);
+      allow update: if (isStaff() && isValidTask(request.resource.data) &&
+                        areImmutableFieldsUnchanged(['id', 'createdAt', 'createdById'])) ||
+                       (isAuthenticated() && resource.data.get('assignedToId', '') == request.auth.uid &&
+                        isValidTask(request.resource.data) &&
+                        areImmutableFieldsUnchanged(['id', 'title', 'details', 'batchId', 'assignedToId', 'createdById', 'priority', 'dueDate', 'createdAt']) &&
+                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'completedAt', 'updatedAt']));
+      allow delete: if isStaff();
+    }
+
+    match /leave_requests/{leaveId} {
+      allow read: if isStaff() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+
+      allow create: if isAuthenticated() &&
+                       (request.resource.data.userId == request.auth.uid || isStaff()) &&
+                       isValidLeaveRequest(request.resource.data) &&
+                       (isStaff() || request.resource.data.status == 'pending');
+
+      allow update: if (isStaff() && isValidLeaveRequest(request.resource.data) &&
+                        areImmutableFieldsUnchanged(['id', 'userId', 'createdAt'])) ||
+                       (isAuthenticated() && resource.data.userId == request.auth.uid &&
+                        resource.data.status == 'pending' &&
+                        isValidLeaveRequest(request.resource.data) &&
+                        areImmutableFieldsUnchanged(['id', 'userId', 'createdAt']) &&
+                        request.resource.data.status in ['pending', 'cancelled']);
+
+      allow delete: if isStaff() || (isAuthenticated() && resource.data.userId == request.auth.uid && resource.data.status == 'pending');
+    }
+
+    // ===============================================================
+    // Secondary Institute Modules (Batch Assignments, Loans, Expenses, Documents)
+    // ===============================================================
+
+    match /batch_assignments/{assignmentId} {
+      allow read: if isStaff() || isFaculty() || (isAuthenticated() && (
+        resource.data.studentId == request.auth.uid || resource.data.get('userId', '') == request.auth.uid
+      ));
+      allow write: if isStaff();
+    }
+
+    match /loans/{loanId} {
+      allow read: if isStaff() || (isAuthenticated() && (
+        resource.data.studentId == request.auth.uid || resource.data.get('userId', '') == request.auth.uid
+      ));
+      allow write: if isStaff();
+    }
+
+    match /expenses/{expenseId} {
+      allow read, write: if isStaff();
+    }
+
+    match /documents/{documentId} {
+      allow read: if isStaff() || (isAuthenticated() && (
+        resource.data.ownerId == request.auth.uid || resource.data.get('uploadedById', '') == request.auth.uid
+      ));
+      allow write: if isStaff();
+    }
+
+    // ===============================================================
+    // Root Default Deny
+    // ===============================================================
+    match /{document=**} {
+      allow read, write: false;
+    }
+  }
+}

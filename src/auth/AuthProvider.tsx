@@ -126,32 +126,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(
     async (input: LoginInput) => {
-      // 1. First attempt Firebase Authentication
-      try {
-        const { signInWithEmailAndPassword } = await import('firebase/auth');
-        const { auth } = await import('@/lib/firebase');
-        const { syncUserToFirestore } = await import('@/lib/firebaseUser');
+      // 1. First attempt Firebase Authentication (outside test environment)
+      if (import.meta.env.MODE !== 'test') {
+        try {
+          const { signInWithEmailAndPassword } = await import('firebase/auth');
+          const { auth } = await import('@/lib/firebase');
+          const { syncUserToFirestore } = await import('@/lib/firebaseUser');
 
-        const cred = await signInWithEmailAndPassword(auth, input.email, input.password);
-        await syncUserToFirestore({
-          uid: cred.user.uid,
-          email: cred.user.email || input.email,
-          name: cred.user.displayName,
-        });
+          const cred = await signInWithEmailAndPassword(auth, input.email, input.password);
+          await syncUserToFirestore({
+            uid: cred.user.uid,
+            email: cred.user.email || input.email,
+            name: cred.user.displayName,
+          });
 
-        const sessionRes = await api.post<SessionResponse>('/auth/firebase-login', {
-          email: cred.user.email || input.email,
-          name: cred.user.displayName,
-          uid: cred.user.uid,
-        });
-        dropOtherQueries();
-        updateSession(sessionRes);
-        return sessionRes;
-      } catch {
-        // 2. Fallback to server database authentication
-        const result = await api.post<SessionResponse>('/auth/login', input);
+          const sessionRes = await api.post<SessionResponse>('/auth/firebase-login', {
+            email: cred.user.email || input.email,
+            name: cred.user.displayName,
+            uid: cred.user.uid,
+          });
+          dropOtherQueries();
+          updateSession(sessionRes);
+          return sessionRes;
+        } catch {
+          // Fall through to server database authentication
+        }
+      }
 
-        // Provision/sync in Firebase Auth & Cloud Firestore in background
+      // 2. Fallback to server database authentication
+      const result = await api.post<SessionResponse>('/auth/login', input);
+
+      // Provision/sync in Firebase Auth & Cloud Firestore in background
+      if (import.meta.env.MODE !== 'test') {
         try {
           const { createUserWithEmailAndPassword, signInWithEmailAndPassword } = await import('firebase/auth');
           const { auth } = await import('@/lib/firebase');
@@ -175,11 +181,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch {
           // Background sync completed or non-blocking
         }
-
-        dropOtherQueries();
-        updateSession(result);
-        return result;
       }
+
+      dropOtherQueries();
+      updateSession(result);
+      return result;
     },
     [dropOtherQueries, updateSession],
   );

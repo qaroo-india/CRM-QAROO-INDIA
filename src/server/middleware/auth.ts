@@ -20,7 +20,9 @@ import { ApiError } from '../utils/ApiError';
 const PASSWORD_CHANGE_ALLOWED = ['/api/v1/auth/'];
 
 export const authenticate: RequestHandler = async (req, _res, next) => {
-  const token = req.cookies?.[ACCESS_COOKIE];
+  const token =
+    req.cookies?.[ACCESS_COOKIE] ||
+    (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : undefined);
   if (typeof token !== 'string' || token.length === 0) {
     throw ApiError.unauthorized();
   }
