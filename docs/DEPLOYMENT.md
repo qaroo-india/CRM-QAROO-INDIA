@@ -1,53 +1,47 @@
 # Deployment
 
-The recommended production setup runs **everything on Vercel**, as one project with two
-[services](https://vercel.com/docs/services) defined in the root `vercel.json`:
+The production setup runs **everything on Vercel as a unified single-project application**:
 
 ```
  Browser ──HTTPS──▶ Vercel (one domain)
-                      ├─ /api/*  ──▶ service "server"  Express as a Vercel Function (server/index.js)
-                      │                ├─ Turso         hosted libSQL database (TURSO_DATABASE_URL)
-                      │                └─ Vercel Blob   PRIVATE store: documents, photos, report files
-                      ├─ /*      ──▶ service "client"  React app (client/dist, static)
-                      └─ Cron    ──▶ GET /api/v1/cron/tick   reminders + scheduled reports
+                      ├─ /api/*  ──▶ Serverless API Function (api/index.ts -> Express)
+                      │                ├─ Turso (SQLite) hosted libSQL database (TURSO_DATABASE_URL)
+                      │                └─ Vercel Blob    PRIVATE store: documents, photos, report files
+                      ├─ /*      ──▶ React Client SPA   Static assets (dist/, served via Edge CDN)
+                      └─ Cron    ──▶ GET /api/v1/cron/tick (reminders + scheduled reports)
 ```
 
-| Service | Public path | Root | What runs |
-|---|---|---|---|
-| `client` | `/` (everything not under `/api`) | `client/` | Vite build, served as static files; unknown paths fall back to `index.html` |
-| `server` | `/api/*` (path passed through unchanged) | `server/` | the Express API, bundled by `npm run build` |
+| Path | Destination | What runs |
+|---|---|---|
+| `/` (and non-API paths) | `dist/` | Vite build output, served as static files with client-side SPA fallback to `index.html` |
+| `/api/*` | `api/index.ts` | Express 5 API running as a serverless function |
 
-There are no service bindings. The browser calls `/api/v1` on the same domain, so the
-`HttpOnly; Secure; SameSite=Strict` auth cookies are first-party and no CORS is involved.
-
-> Nothing here has been deployed for you, and the Vercel build itself has not been run.
-> These parts were checked locally:
->
-> - the server bundle (`dist/vercel.js`) against a database file: migrate, seed, health and the cron endpoint, with `NODE_ENV=production`;
-> - that with a hosted `libsql://` URL the bundle loads no native database engine;
-> - the full test suite on libSQL.
+The browser calls `/api/v1` on the same domain, so `HttpOnly; Secure; SameSite=Strict` auth cookies are first-party and no CORS is involved.
 
 ---
 
 ## 1. Before you start
 
-- [ ] Push the repository to GitHub, GitLab or Bitbucket.
+- [ ] Push the repository to GitHub.
 - [ ] **Vercel plan.**
-  - On **Hobby**, a cron job may run at most once a day, so `vercel.json` schedules the jobs daily (07:00 IST).
-  - On **Pro**, change the schedule to every 15 minutes (`"*/15 * * * *"`) so scheduled reports go out on time. See [Scheduled jobs](#4-scheduled-jobs).
-- [ ] **SMTP credentials** if you want real email, for example Amazon SES, Brevo, Mailgun or Postmark. Without SMTP, set `EMAIL_TRANSPORT=disabled`; emails are then recorded as failed instead of being faked.
+  - On **Hobby**, a cron job may run at most once a day (`30 1 * * *`).
+  - On **Pro**, change the schedule to every 15 minutes (`"*/15 * * * *"`) if desired.
+- [ ] **SMTP credentials** if you want real email, for example Amazon SES, Brevo, Mailgun or Postmark. Without SMTP, set `EMAIL_TRANSPORT=disabled`.
 - [ ] A strong **owner initial password** of 10 or more characters. You change it at first sign-in.
 
 ## 2. Create the project and connect storage
 
-1. In Vercel, choose **Add New → Project** and import the repository. Then, in **Settings → Build and Deployment**:
-   - **Framework Preset: Services.** Vercel only builds the `services` in `vercel.json` when the project is a Services project.
-   - **Root Directory: empty**, meaning the repository root, where `vercel.json` is.
-   - **No overrides** for the install, build or output commands; each service sets its own.
+1. In Vercel, choose **Add New → Project** and import the GitHub repository:
+   - **Framework Preset: Vite** (automatically detected).
+   - **Root Directory:** `./` (repository root, default).
+   - **Build Command:** `npm run build`.
+   - **Output Directory:** `dist`.
+   No custom service configurations or workarounds needed! Vercel automatically deploys the frontend and the `api/` serverless functions.
 
-   If the project is instead set up as one Express app in `server/`, only the API deploys: `server/index.js` is its entry and the build still migrates the database. The web app is missing from that setup, so switch to Services.
-2. **Database:**
-   1. Open **Storage → Marketplace → Turso** and create a database.
+2. **Database (Persistent SQLite via Turso):**
+   1. Open **Storage → Marketplace → Turso** and create a database (or use your existing Turso account).
+   2. Connect it to the **Production** environment. This sets `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`, which the server reads.
+   3. Note: On Vercel, the local container filesystem is read-only and ephemeral. Turso provides true, persistent, low-latency SQLite across all serverless invocations.
    2. Connect it to the **Production** environment. This sets `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`, which the server reads.
    3. For Preview, connect a **separate** database or none. See [Preview deployments](#preview-deployments).
 3. **Files:**

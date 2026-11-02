@@ -14,6 +14,11 @@ build/
 *.tsbuildinfo
 
 # database (local SQLite data must never be committed)
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.sqlite*
+data/backups/
 server/data/*.db
 server/data/*.db-shm
 server/data/*.db-wal
@@ -21,6 +26,9 @@ server/data/*.sqlite*
 server/data/backups/
 
 # generated reports / uploads
+storage/
+storage-test/
+uploads/
 server/storage/
 server/storage-test/
 server/uploads/

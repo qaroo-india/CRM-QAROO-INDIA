@@ -16,12 +16,12 @@ the full student lifecycle:
 
 **Stack:** React 19 · Vite 8 · Tailwind CSS 4 · TanStack Query · Recharts · Express 5 ·
 SQLite via libSQL (a local file, or Turso in production) · Drizzle ORM · Zod 4 · TypeScript 7 ·
-Vitest 5 · PDFKit · ExcelJS · Vercel (Services, Blob, Cron)
+Vitest 5 · PDFKit · ExcelJS · Vercel (Serverless Functions, Blob, Cron)
 
-> **Status:** all milestones, including the campus and portal additions, are built and
-> verified locally (typecheck, tests, production build, live smoke test). It is **not
-> deployed**: deployment needs your Vercel account, with Turso and Vercel Blob connected. See
-> [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+> **Status:** Unified single-project architecture ready for direct Vercel deployment and
+> GitHub integration. Built and verified locally (typecheck, tests, production build).
+> Production persistent database connects seamlessly with Turso (hosted libSQL / SQLite).
+> See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ---
 
@@ -30,15 +30,15 @@ Vitest 5 · PDFKit · ExcelJS · Vercel (Services, Blob, Cron)
 **Prerequisites:**
 
 - Node.js 22 or newer (24 LTS recommended; see `.nvmrc`), npm 10+, and Git.
-- No database server, compiler or cloud account. The database is a local SQLite file (libSQL, prebuilt binaries for Windows, macOS and Linux).
+- No database server, compiler or cloud account required for local development. The database is a local SQLite file (libSQL).
 
 ```bash
-# 1. Install all three workspaces
+# 1. Install dependencies
 npm install
 
-# 2. Create local environment files (development defaults, no secrets)
-cp server/.env.example server/.env
-cp client/.env.example client/.env
+# 2. Create local environment file (development defaults, no secrets)
+cp .env.example .env
+# On Windows PowerShell: Copy-Item .env.example .env
 
 # 3. Create the database and load reference data (lead sources, categories, owner account)
 npm run db:migrate
@@ -47,13 +47,13 @@ npm run db:seed
 # 4. Optional: fill the EMPTY database with clearly labelled demo data
 npm run db:demo
 
-# 5. Start the API (port 5000) and the web app (port 5173) together
+# 5. Start the API and the web app together in development mode
 npm run dev
 ```
 
 Open **http://localhost:5173** and sign in:
 
-- **Email:** `OWNER_EMAIL` from `server/.env` (default `owner@institute.local`).
+- **Email:** `OWNER_EMAIL` from `.env` (default `owner@institute.local`).
 - **Password:** `OWNER_INITIAL_PASSWORD` (default `ChangeMe-Owner-2026`, development only).
 
 You must choose a new password at first sign-in.
@@ -125,35 +125,38 @@ Run from the repository root.
 | `npm run db:studio` | Browse the database in a local web UI |
 | `npm run setup` | `install` + `db:migrate` + `db:seed` |
 
-Production (server workspace): `npm run start:prod --workspace=server` runs
-`migrate → seed → server` from `dist/`. Backups in production use
-`npm run db:backup:prod --workspace=server`.
+Production: `npm run start:prod` runs
+`migrate → seed → server` from `dist/`. Backups use
+`npm run db:backup:prod`.
 
 ---
 
 ## Project structure
 
 ```
-├── shared/          @ims/shared: money, dates (institute time zone), ids, permissions,
-│                    status vocabularies, Zod schemas and response DTOs, used by both sides
-├── server/          @ims/server: Express 5 API
-│   ├── drizzle/     SQL migrations (34 tables)
-│   ├── src/
-│   │   ├── config/  validated env, logger
-│   │   ├── db/      schema, dialect boundary, migrate / seed / demo / backup CLIs
-│   │   ├── middleware/  auth, CSRF, security headers, error envelope
-│   │   ├── modules/ auth · users · settings · audit · courses · leads · students ·
-│   │   │            admissions · finance · expenses · batches · placements · reports ·
-│   │   │            notifications · documents · import · search · health
-│   │   ├── services/ ledger (balances), mailer, storage, sequences, audit, clock
-│   │   ├── pdf/     receipt and report building blocks (Inter font for ₹)
-│   │   └── jobs.ts  scheduled reports and reminder sweep (JOBS_ENABLED)
-│   └── tests/       integration tests through HTTP on a throwaway SQLite file
-├── client/          @ims/client: React SPA (features/<domain>, components/ui, charts)
-├── docs/            architecture, API, design system, deployment, security
-├── vercel.json      web app hosting, /api rewrite, security headers
-├── vercel.json      Vercel services (client at /, server at /api), cron, security headers
-└── render.yaml      alternative: the API as a long-running server on Render
+├── api/             Vercel serverless function entry (api/index.ts)
+├── src/
+│   ├── app/         React router, layout, and shell navigation
+│   ├── auth/        Authentication pages, login, password reset
+│   ├── components/  Reusable UI components, dialogs, forms
+│   ├── features/    Domain features (leads, admissions, payments, campus, etc.)
+│   ├── shared/      Money, dates, ids, permissions, Zod schemas and response DTOs
+│   └── server/      Express 5 API:
+│       ├── config/      Validated env, paths, logger
+│       ├── db/          Schema, dialect boundary, migrate / seed / demo / backup
+│       ├── middleware/  Auth, CSRF, security headers, rate limiting, error envelope
+│       ├── modules/     Auth · users · settings · audit · courses · leads · students ·
+│       │                admissions · finance · expenses · batches · placements · reports
+│       ├── services/    Ledger, mailer, storage, clock, audit
+│       ├── pdf/         Receipt and report generation (Inter font embedded)
+│       └── jobs.ts      Scheduled reports and reminder sweep
+├── drizzle/         SQL migrations (34 tables)
+├── tests/           Integration test suite
+├── index.html       Vite entry HTML
+├── vite.config.ts   Vite configuration (aliases, proxies, chunking)
+├── vercel.json      Vercel single-project hosting, /api rewrite, cron, security headers
+├── .env.example     Unified environment template
+└── .github/         GitHub Actions CI and deployment workflows
 ```
 
 ---
@@ -161,9 +164,9 @@ Production (server workspace): `npm run start:prod --workspace=server` runs
 ## Testing
 
 ```bash
-npm test                         # all workspaces
-npm test --workspace=server      # API, money, reports, exports, permissions, portals
-npm test --workspace=client      # UI states, formatting, CSP hash
+npm test                         # all suites: shared, client, server
+npm run typecheck                # strict TypeScript verification
+npm run build                    # build client (dist/) and bundle server
 ```
 
 Server tests use a **throwaway SQLite database** per test file (`DATABASE_URL=:memory:`
