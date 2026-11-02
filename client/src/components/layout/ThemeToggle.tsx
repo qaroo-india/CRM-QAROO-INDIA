@@ -1,4 +1,5 @@
 import { Monitor, Moon, Sun } from 'lucide-react';
+import type { MouseEvent } from 'react';
 import { flushSync } from 'react-dom';
 import { Button } from '@/components/ui/Button';
 import { useTheme, type ThemePreference } from '@/providers/ThemeProvider';
@@ -11,11 +12,14 @@ export function ThemeToggle() {
   const { preference, cyclePreference } = useTheme();
   const Icon = ICONS[preference];
 
-  // Cross-fade the page between themes where the browser supports it.
-  const toggle = () => {
+  // The new theme spreads in a circle from the button (View Transitions, where supported).
+  const toggle = (event: MouseEvent<HTMLButtonElement>) => {
     const doc = document as Document & { startViewTransition?: (update: () => void) => unknown };
     const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     if (!doc.startViewTransition || reduce) return cyclePreference();
+    const box = event.currentTarget.getBoundingClientRect();
+    document.documentElement.style.setProperty('--vt-x', `${box.left + box.width / 2}px`);
+    document.documentElement.style.setProperty('--vt-y', `${box.top + box.height / 2}px`);
     doc.startViewTransition(() => flushSync(cyclePreference));
   };
 

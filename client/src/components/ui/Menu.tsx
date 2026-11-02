@@ -8,7 +8,7 @@ import type { ComponentProps, ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
 const floatingSurface =
-  'z-50 rounded-xl border bg-surface-raised p-1 shadow-card outline-none data-[state=closed]:animate-pop-out data-[state=open]:animate-pop-in';
+  'glass z-50 rounded-xl border p-1 outline-none data-[state=closed]:animate-pop-out data-[state=open]:animate-pop-in';
 
 /* ------------------------------------------------------------------ *
  * Dropdown menu
@@ -115,7 +115,7 @@ export function Tooltip({ content, children, side = 'top', disabled }: TooltipPr
         <TooltipPrimitive.Content
           side={side}
           sideOffset={6}
-          className="z-50 max-w-xs rounded-lg border bg-surface-raised px-2.5 py-1.5 text-xs leading-relaxed text-fg shadow-card data-[state=closed]:animate-pop-out data-[state=delayed-open]:animate-pop-in"
+          className="glass z-50 max-w-xs rounded-lg border px-2.5 py-1.5 text-xs leading-relaxed text-fg data-[state=closed]:animate-pop-out data-[state=delayed-open]:animate-pop-in"
         >
           {content}
         </TooltipPrimitive.Content>

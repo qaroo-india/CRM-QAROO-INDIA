@@ -13,7 +13,7 @@
  */
 
 import { Table2, BarChart3 } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import {
   Area,
   AreaChart,
@@ -170,7 +170,11 @@ interface CartesianProps<T> {
 }
 
 /** Trend over time. One series renders as a soft area; several as lines. */
+/** Lines glow softly in their own colour. */
+const glow = (color: string) => ({ filter: `drop-shadow(0 0 6px color-mix(in oklch, ${color} 55%, transparent))` });
+
 export function TrendChart<T>({ data, xKey, series, formatValue, formatAxis, formatX }: CartesianProps<T>) {
+  const fillId = `trend-fill-${useId().replace(/:/g, '')}`;
   const colors = series.map((s, i) => SERIES[s.slot ?? i] ?? SERIES[0]);
   const single = series.length === 1;
   const x: string = xKey;
@@ -190,14 +194,20 @@ export function TrendChart<T>({ data, xKey, series, formatValue, formatAxis, for
         <ResponsiveContainer width="100%" height="100%">
           {single ? (
             <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+              <defs>
+                <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={colors[0]} stopOpacity={0.32} />
+                  <stop offset="100%" stopColor={colors[0]} stopOpacity={0} />
+                </linearGradient>
+              </defs>
               {common}
-              <Area type="monotone" dataKey={first} name={series[0]!.label} stroke={colors[0]} strokeWidth={2} fill={colors[0]} fillOpacity={0.1} activeDot={{ r: 4, strokeWidth: 2, stroke: 'var(--color-surface)' }} dot={false} />
+              <Area type="monotone" dataKey={first} name={series[0]!.label} stroke={colors[0]} strokeWidth={2.25} fill={`url(#${fillId})`} fillOpacity={1} style={glow(colors[0]!)} animationDuration={900} animationEasing="ease-out" activeDot={{ r: 5, strokeWidth: 2, stroke: 'var(--color-surface)' }} dot={false} />
             </AreaChart>
           ) : (
             <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
               {common}
               {series.map((s, i) => (
-                <Line key={s.key} type="monotone" dataKey={s.key as string} name={s.label} stroke={colors[i]} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 2, stroke: 'var(--color-surface)' }} />
+                <Line key={s.key} type="monotone" dataKey={s.key as string} name={s.label} stroke={colors[i]} strokeWidth={2.25} style={glow(colors[i]!)} animationDuration={900} animationEasing="ease-out" dot={false} activeDot={{ r: 5, strokeWidth: 2, stroke: 'var(--color-surface)' }} />
               ))}
             </LineChart>
           )}
@@ -228,6 +238,8 @@ export function ColumnChart<T>({ data, xKey, series, formatValue, formatAxis, fo
                 name={s.label}
                 fill={colors[i]}
                 maxBarSize={24}
+                animationDuration={800}
+                animationEasing="ease-out"
                 stackId={stacked ? 'stack' : undefined}
                 radius={stacked ? (i === series.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]) : [4, 4, 0, 0]}
                 stroke={stacked ? 'var(--color-surface)' : undefined}

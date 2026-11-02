@@ -9,8 +9,11 @@ import { useLocation, useOutlet } from 'react-router';
 import { useAuth } from '@/auth/AuthProvider';
 import { DialogRoot, DrawerContent } from '@/components/ui/Dialog';
 import { LoadingBlock } from '@/components/ui/Feedback';
+import { AmbientBackground, BackToTop, RouteProgress } from '@/components/visual/Ambient';
+import { useCardSpotlight, useSmoothScroll } from '@/components/visual/effects';
 import { CommandPalette } from './CommandPalette';
 import { visibleSections } from './navigation';
+import { ShortcutsDialog, useShortcuts } from './Shortcuts';
 import { NavSections, Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 
@@ -29,9 +32,13 @@ export function AppShell() {
   const location = useLocation();
   const outlet = useOutlet();
   const reduceMotion = useReducedMotion();
+  useSmoothScroll();
+  useCardSpotlight();
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const openPalette = useCallback(() => setPaletteOpen(true), []);
+  const shortcuts = useShortcuts(auth.viewer, openPalette);
 
   const toggleSidebar = useCallback(() => {
     setCollapsed((value) => {
@@ -61,6 +68,8 @@ export function AppShell() {
 
   return (
     <div className="flex min-h-dvh">
+      <AmbientBackground />
+      <RouteProgress />
       <a
         href="#main"
         className="sr-only z-50 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-fg focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
@@ -78,10 +87,10 @@ export function AppShell() {
               <AnimatePresence mode="wait" initial={false}>
                 <motion.div
                   key={location.pathname}
-                  initial={reduceMotion ? false : { opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={reduceMotion ? undefined : { opacity: 0, y: -4 }}
-                  transition={{ duration: reduceMotion ? 0 : 0.18, ease: [0.16, 1, 0.3, 1] }}
+                  initial={reduceMotion ? false : { opacity: 0, y: 10, filter: 'blur(6px)' }}
+                  animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                  exit={reduceMotion ? undefined : { opacity: 0, y: -6, filter: 'blur(4px)' }}
+                  transition={{ duration: reduceMotion ? 0 : 0.26, ease: [0.16, 1, 0.3, 1] }}
                 >
                   {outlet}
                 </motion.div>
@@ -98,6 +107,8 @@ export function AppShell() {
       </DialogRoot>
 
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      <ShortcutsDialog open={shortcuts.helpOpen} onOpenChange={shortcuts.setHelpOpen} goes={shortcuts.goes} />
+      <BackToTop />
     </div>
   );
 }

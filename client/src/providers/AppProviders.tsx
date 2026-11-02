@@ -20,7 +20,7 @@ function ThemedToaster() {
       position="bottom-right"
       closeButton
       richColors
-      toastOptions={{ className: 'font-sans' }}
+      toastOptions={{ className: 'font-sans glass !rounded-card' }}
     />
   );
 }

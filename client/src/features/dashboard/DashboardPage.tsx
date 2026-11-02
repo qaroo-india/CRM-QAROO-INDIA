@@ -5,7 +5,7 @@ import { useAuth } from '@/auth/AuthProvider';
 import { ChartCard, ColumnChart, DataTableView } from '@/components/charts/ChartKit';
 import { Card } from '@/components/ui/Card';
 import { ErrorState } from '@/components/ui/Feedback';
-import { PageHeader } from '@/components/ui/PageHeader';
+import { HeroHeader } from '@/components/visual/HeroHeader';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { cn } from '@/lib/cn';
 import { date, money, moneyCompact, month, number, percent } from '@/utils/format';
@@ -148,7 +148,8 @@ export function DashboardPage() {
 
   return (
     <>
-      <PageHeader
+      <HeroHeader
+        eyebrow="Overview"
         title="Executive dashboard"
         description={
           data

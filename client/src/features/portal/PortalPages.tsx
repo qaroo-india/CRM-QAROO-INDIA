@@ -18,6 +18,7 @@ import { EmptyState, ErrorState, LoadingBlock } from '@/components/ui/Feedback';
 import { Field } from '@/components/ui/Field';
 import { Select, Textarea } from '@/components/ui/Input';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { HeroHeader } from '@/components/visual/HeroHeader';
 import { StatCard } from '@/components/ui/StatCard';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { api, fetchFile, saveBlob } from '@/lib/api';
@@ -91,7 +92,7 @@ export function PortalOverviewPage() {
   const o = overview.data;
   return (
     <>
-      <PageHeader title={`Hello, ${(user?.name ?? o.student.fullName).split(' ')[0]}`} description={`Student ID ${o.student.studentCode}`} />
+      <HeroHeader eyebrow="Student portal" title={`Hello, ${(user?.name ?? o.student.fullName).split(' ')[0]}`} description={`Student ID ${o.student.studentCode}`} />
       <div className="stagger mb-4 grid gap-3 sm:grid-cols-3">
         <StatCard label="Exams open to you" value={number(o.openExams)} icon={BookOpenCheck} to="/portal/exams" />
         <StatCard label="New study material" value={number(o.newMaterials)} icon={FolderOpen} to="/portal/materials" hint="Shared in the last 14 days" />

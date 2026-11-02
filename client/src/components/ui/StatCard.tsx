@@ -14,6 +14,7 @@ import { Link } from 'react-router';
 import { cn } from '@/lib/cn';
 import { percent } from '@/utils/format';
 import { Tooltip } from './Menu';
+import { AnimatedValue } from './AnimatedValue';
 import { Skeleton } from './Skeleton';
 
 export interface StatDelta {
@@ -127,7 +128,9 @@ export function StatCard({ label, value, icon: Icon, delta, sparkline, hint, to,
       ) : (
         <div className="flex items-end justify-between gap-3">
           <div className="min-w-0 space-y-1.5">
-            <p className="truncate text-2xl font-semibold tracking-tight text-fg">{value}</p>
+            <p className="truncate text-2xl font-semibold tracking-tight text-fg">
+              <AnimatedValue value={value} />
+            </p>
             {delta && <DeltaBadge delta={delta} />}
           </div>
           {sparkline && <Sparkline values={sparkline} />}
@@ -140,8 +143,9 @@ export function StatCard({ label, value, icon: Icon, delta, sparkline, hint, to,
   // sits above it, so no interactive element is nested inside another.
   return (
     <div
+      data-spotlight="tilt"
       className={cn(
-        'relative rounded-card border bg-surface shadow-card transition-[border-color,box-shadow,transform] duration-200',
+        'spotlight tilt holo relative rounded-card border bg-surface shadow-card',
         to && 'hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-glow has-[a:focus-visible]:border-primary/60',
         className,
       )}

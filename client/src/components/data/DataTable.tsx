@@ -305,7 +305,7 @@ export function DataTable<T>({
             {visible.map(headerCell)}
           </tr>
         </thead>
-        <tbody>{body}</tbody>
+        <tbody className="stagger">{body}</tbody>
         {footer && rows && rows.length > 0 && <tfoot className="border-t-2 bg-surface-raised">{footer}</tfoot>}
       </table>
     </div>

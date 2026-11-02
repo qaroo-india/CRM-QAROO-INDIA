@@ -5,7 +5,7 @@ import { useAuth } from '@/auth/AuthProvider';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { EmptyState, ErrorState, LoadingBlock } from '@/components/ui/Feedback';
-import { PageHeader } from '@/components/ui/PageHeader';
+import { HeroHeader } from '@/components/visual/HeroHeader';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { cn } from '@/lib/cn';
 import { date, getFormatConfig, humanize } from '@/utils/format';
@@ -26,7 +26,7 @@ export function FacultyHome() {
 
   return (
     <>
-      <PageHeader title={`Good to see you, ${user?.name.split(' ')[0] ?? ''}`} description="Your classes this week, your batches and what is waiting for you." />
+      <HeroHeader eyebrow="My teaching" title={`Good to see you, ${user?.name.split(' ')[0] ?? ''}`} description="Your classes this week, your batches and what is waiting for you." />
       <div className="stagger grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>

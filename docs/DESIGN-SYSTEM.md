@@ -127,3 +127,47 @@ palette, all on these tokens.
 - Preference (`dark` | `light` | `system`) is stored in `localStorage['ims-theme']`, guarded for blocked storage.
 - An inline script in `index.html` applies the theme **before first paint**, so there is no flash of the wrong theme. `ThemeProvider` takes over once React mounts and tracks OS changes live in `system` mode.
 - The default is `system`: until someone picks a theme, the app follows the device's light/dark setting.
+
+## 3D and visual effects
+
+| Effect | Where | How |
+|---|---|---|
+| 3D campus network | Login brand panel (`AuthLayout`); home page banners (`HeroHeader` on the executive dashboard, faculty home, student overview) | `components/visual/CampusScene.tsx`, plain three.js (0.186.1): a globe of linked nodes, orbit rings with satellites, pulsing hubs, drifting particles, pointer parallax |
+| Smooth scrolling | Whole app | Lenis (1.3.26) in `useSmoothScroll`; dialogs, menus and scroll areas keep native scrolling, and it stops while a dialog locks the page |
+| Cursor spotlight | Every `Card` and `StatCard` | `useCardSpotlight` sets `--mx/--my/--spot`; the `spotlight` utility draws a soft light |
+| 3D tilt | `StatCard` | `data-spotlight="tilt"` and the `tilt` utility, at most 2.5 degrees |
+| Count-up figures | `StatCard` values | `AnimatedValue` glides between numbers and keeps ₹, %, L and Cr in place |
+| Shine | Primary buttons | the `shine` utility |
+| Page change | Every route | fade, rise and a short blur (`AppShell`) |
+| Ambient light | Behind every signed-in page | `AmbientBackground`: drifting aurora (`aurora-blob`), faint grid, a glow that follows the pointer |
+| Glass | Dialogs, drawers, menus, tooltips, toasts, sidebar, login card | `glass` utility (frosted, saturated backdrop blur) |
+| Light beam border | Stat cards on hover (`holo`), the login card always (`holo-live`) | conic gradient masked to the border, animated `--beam-angle` |
+| Gradient titles | `PageHeader`, `HeroHeader`, 404 | `text-gradient` |
+| Click ripple | Every `Button` | a `ripple` span from the press point |
+| Route progress | Top edge, on every page change | `RouteProgress`, `route-progress` utility |
+| Orbit loader, orbit ring | `LoadingBlock`; empty-state icons | `orbit-loader`, `orbit-ring` |
+| Theme reveal | Theme toggle | the new theme spreads in a circle from the button (View Transitions `theme-reveal`) |
+| Bell and avatar | Top bar | `bell-ring` when the unread count rises; `avatar-ring` |
+| Glitch | 404 page | `glitch` with `data-text` |
+| Back to top | After scrolling 640 px | `BackToTop`, glides through Lenis |
+
+**Keyboard shortcuts** (`app/Shortcuts.tsx`): `/` or Ctrl/Cmd K opens search, `?` lists the
+shortcuts, and `G` then a letter goes to a page in the person's own menu (`D` home, `L` leads,
+`S` students, `A` admissions, `P` payments or fees, `I` instalments, `X` expenses, `B` batches,
+`C` classes, `T` attendance, `E` exams, `M` material, `F` certificates, `R` reports, `N`
+notifications, `K` tasks, `V` leave, `Y` inventory, `U` staff, `O` account). Nothing fires while
+typing or while a dialog is open.
+
+Rules the 3D follows:
+
+- It loads lazily (one ~540 kB chunk, 135 kB compressed) and only on wide screens.
+- It stops drawing when off-screen or when the tab is hidden; "reduce motion" gets a single still frame.
+- Without WebGL it renders nothing, and the page's grid and glow remain.
+- Colours come from `--ims-primary`, `--ims-violet` and `--ims-accent`, re-read when the theme changes.
+- A gradient behind the login headline keeps the text readable over the scene.
+
+**Spline** ([react-spline](https://github.com/splinetool/react-spline)) was reviewed on 2026-10-15 and not
+added: the three.js scene needs no external design file. If a Spline scene is designed
+later, host the `.splinecode` file in `client/public/` (the production policy only allows
+the app's own origin), lazy-load `@splinetool/react-spline`, and pin a runtime version at
+least two weeks old.

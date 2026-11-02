@@ -5,7 +5,7 @@ import { cn } from '@/lib/cn';
 export const controlClass =
   'w-full rounded-control border border-border-strong bg-surface-sunken text-sm text-fg placeholder:text-fg-subtle ' +
   'transition-[border-color,box-shadow] duration-150 outline-none ' +
-  'hover:border-fg-subtle/60 focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-primary/20 ' +
+  'hover:border-fg-subtle/60 focus-visible:border-primary focus-visible:bg-surface focus-visible:shadow-glow focus-visible:ring-3 focus-visible:ring-primary/20 ' +
   'disabled:cursor-not-allowed disabled:opacity-60 ' +
   'aria-invalid:border-danger aria-invalid:focus-visible:ring-danger/20';
 

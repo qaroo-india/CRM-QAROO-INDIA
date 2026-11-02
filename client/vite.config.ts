@@ -42,6 +42,10 @@ export default defineConfig(({ mode }) => {
     build: {
       sourcemap: true,
       target: 'es2022',
+      // The 3D campus scene (three.js) is one ~540 kB chunk, loaded lazily on
+      // the login and home pages only; everything on the startup path stays
+      // well under 500 kB.
+      chunkSizeWarningLimit: 600,
       rolldownOptions: {
         output: {
           // Libraries every page loads get their own chunks: each stays under

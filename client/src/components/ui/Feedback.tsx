@@ -27,7 +27,8 @@ export function EmptyState({ icon: Icon, title, description, action, className, 
   return (
     <div className={cn('flex flex-col items-center justify-center text-center', compact ? 'gap-2 py-8' : 'gap-3 py-14', className)}>
       {Icon && (
-        <span className="grid size-11 place-items-center rounded-2xl border bg-surface-raised text-fg-muted">
+        <span className="relative grid size-11 place-items-center rounded-2xl border bg-surface-raised text-primary">
+          <span aria-hidden className="orbit-ring" />
           <Icon aria-hidden className="size-5" />
         </span>
       )}
@@ -80,8 +81,8 @@ export function ErrorState({ error, onRetry, retrying, title = 'Could not load t
 export function LoadingBlock({ label = 'Loading…', className }: { label?: string; className?: string }) {
   return (
     <div aria-busy="true" className={cn('grid place-items-center py-16 animate-fade-in [animation-delay:150ms]', className)}>
-      <span className="inline-flex items-center gap-2 text-sm text-fg-muted">
-        <LoaderCircle aria-hidden className="size-4 animate-spin" />
+      <span className="inline-flex flex-col items-center gap-3 text-sm text-fg-muted">
+        <span aria-hidden className="orbit-loader" />
         {label}
       </span>
     </div>

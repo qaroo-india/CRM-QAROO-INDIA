@@ -1,12 +1,12 @@
 import { LoaderCircle } from 'lucide-react';
-import type { ComponentProps } from 'react';
+import type { ComponentProps, PointerEvent } from 'react';
 import { cn } from '@/lib/cn';
 
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 type ButtonSize = 'sm' | 'md' | 'icon';
 
 const VARIANTS: Record<ButtonVariant, string> = {
-  primary: 'bg-primary text-primary-fg hover:brightness-110 hover:shadow-glow',
+  primary: 'shine bg-primary text-primary-fg hover:brightness-110 hover:shadow-glow',
   secondary:
     'border border-border-strong bg-surface-raised text-fg hover:border-primary/50 hover:bg-surface-sunken',
   ghost: 'text-fg-muted hover:bg-surface-raised hover:text-fg',
@@ -34,15 +34,31 @@ export function Button({
   className,
   children,
   type = 'button',
+  onPointerDown,
   ...props
 }: ButtonProps) {
+  // A ripple spreads from where the button was pressed.
+  const ripple = (event: PointerEvent<HTMLButtonElement>) => {
+    onPointerDown?.(event);
+    if (event.button !== 0 || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const button = event.currentTarget;
+    const box = button.getBoundingClientRect();
+    const size = Math.max(box.width, box.height) * 2.2;
+    const dot = document.createElement('span');
+    dot.className = 'ripple';
+    dot.setAttribute('aria-hidden', 'true');
+    dot.style.cssText = `width:${size}px;height:${size}px;left:${event.clientX - box.left}px;top:${event.clientY - box.top}px`;
+    dot.addEventListener('animationend', () => dot.remove());
+    button.appendChild(dot);
+  };
   return (
     <button
       type={type}
+      onPointerDown={ripple}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       className={cn(
-        'inline-flex shrink-0 items-center justify-center gap-2 rounded-control font-medium whitespace-nowrap select-none',
+        'relative inline-flex shrink-0 items-center justify-center gap-2 overflow-hidden rounded-control font-medium whitespace-nowrap select-none',
         'transition-[background-color,border-color,color,box-shadow,filter,transform] duration-200 ease-standard',
         'active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50',
         VARIANTS[variant],

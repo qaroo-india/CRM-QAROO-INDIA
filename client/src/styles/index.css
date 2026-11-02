@@ -14,6 +14,7 @@
 @import 'tailwindcss';
 @import '@fontsource-variable/geist';
 @import '@fontsource-variable/geist-mono';
+@import 'lenis/dist/lenis.css';
 
 /* Dark mode follows the data-theme attribute on <html>, set by ThemeProvider. */
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
@@ -69,6 +70,7 @@
     0 1px 2px oklch(0.2 0.03 262 / 0.06), 0 10px 28px -14px oklch(0.2 0.03 262 / 0.16);
   --ims-glow: 0 0 0 1px oklch(0.5 0.115 222 / 0.18);
   --ims-backdrop-glow: oklch(0.85 0.06 222 / 0.35);
+  --ims-aurora: 0.14;
 }
 
 /* ------------------------------------------------------------------ *
@@ -121,6 +123,7 @@
   --ims-glow:
     0 0 0 1px oklch(0.82 0.13 205 / 0.22), 0 0 28px -8px oklch(0.82 0.13 205 / 0.35);
   --ims-backdrop-glow: oklch(0.45 0.12 240 / 0.22);
+  --ims-aurora: 0.2;
 }
 
 /* ------------------------------------------------------------------ *
@@ -337,6 +340,12 @@
     background: color-mix(in oklch, var(--color-primary) 32%, transparent);
   }
 
+  input,
+  textarea,
+  [contenteditable] {
+    caret-color: var(--color-primary);
+  }
+
   /* Thin scrollbars in the theme's colours (tables, sidebar, drawers). */
   * {
     scrollbar-width: thin;
@@ -361,10 +370,24 @@
 
 /* Switching between light and dark cross-fades the whole page (View
    Transitions, where the browser supports them) instead of snapping. */
+::view-transition-image-pair(root) {
+  isolation: auto;
+}
 ::view-transition-old(root),
 ::view-transition-new(root) {
-  animation-duration: 0.32s;
-  animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-new(root) {
+  animation: theme-reveal 0.6s cubic-bezier(0.2, 0, 0, 1);
+}
+@keyframes theme-reveal {
+  from {
+    clip-path: circle(0 at var(--vt-x, 50%) var(--vt-y, 0%));
+  }
+  to {
+    clip-path: circle(150vmax at var(--vt-x, 50%) var(--vt-y, 0%));
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -387,6 +410,72 @@
     var(--ims-backdrop-glow),
     transparent 70%
   );
+}
+
+/* Smooth scrolling is driven by Lenis; native smooth scrolling would fight it. */
+html.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+
+/* Animatable custom properties for the cursor spotlight and card tilt. */
+@property --spot {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+@property --rx {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+@property --ry {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+/* A soft light that follows the cursor across a card (set by useCardSpotlight). */
+@utility spotlight {
+  background-image: radial-gradient(
+    320px circle at var(--mx, 50%) var(--my, 50%),
+    color-mix(in oklch, var(--color-primary) calc(var(--spot) * 11%), transparent),
+    transparent 70%
+  );
+  transition:
+    --spot 0.4s var(--ease-standard),
+    border-color 0.2s var(--ease-standard),
+    box-shadow 0.2s var(--ease-standard);
+}
+
+/* Leans a card a few degrees towards the cursor. */
+@utility tilt {
+  transform: perspective(900px) rotateX(var(--rx)) rotateY(var(--ry));
+  transition:
+    --rx 0.35s var(--ease-out-expo),
+    --ry 0.35s var(--ease-out-expo),
+    --spot 0.4s var(--ease-standard),
+    translate 0.2s var(--ease-out-expo),
+    border-color 0.2s var(--ease-standard),
+    box-shadow 0.2s var(--ease-standard);
+}
+
+/* A light sweep across primary buttons on hover. */
+@utility shine {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: linear-gradient(105deg, transparent 30%, oklch(1 0 0 / 0.28) 50%, transparent 70%);
+    translate: -110% 0;
+    transition: translate 0.7s var(--ease-out-expo);
+  }
+  &:hover::after {
+    translate: 110% 0;
+  }
 }
 
 /* Children arrive one after another (stat rows, card grids). Capped so a
@@ -443,11 +532,314 @@
   background: linear-gradient(
     90deg,
     var(--color-surface-raised) 0%,
-    var(--color-border) 50%,
+    color-mix(in oklch, var(--color-primary) 14%, var(--color-border)) 50%,
     var(--color-surface-raised) 100%
   );
   background-size: 200% 100%;
   animation: var(--animate-shimmer);
+}
+
+/* ------------------------------------------------------------------ *
+ * Futuristic layer: ambient light, glass, light beams, loaders, glitch
+ * ------------------------------------------------------------------ */
+
+@property --beam-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+/* Frosted glass for floating surfaces (dialogs, drawers, menus, sidebar). */
+@utility glass {
+  background-color: color-mix(in oklch, var(--color-surface) 84%, transparent);
+  backdrop-filter: blur(18px) saturate(1.35);
+  -webkit-backdrop-filter: blur(18px) saturate(1.35);
+  box-shadow:
+    var(--shadow-card),
+    inset 0 1px 0 color-mix(in oklch, var(--color-fg) 7%, transparent);
+}
+
+/* A light beam that runs around the border: on hover (holo) or always (holo-live). */
+@utility holo {
+  position: relative;
+  &::after {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    padding: 1px;
+    border-radius: inherit;
+    pointer-events: none;
+    background: conic-gradient(
+      from var(--beam-angle),
+      transparent 0deg,
+      transparent 230deg,
+      var(--color-primary) 300deg,
+      var(--color-violet) 335deg,
+      transparent 360deg
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0;
+    transition: opacity 0.35s var(--ease-standard);
+  }
+  &:hover::after {
+    opacity: 1;
+    animation: beam-spin 2.8s linear infinite;
+  }
+}
+@utility holo-live {
+  &::after {
+    opacity: 0.9;
+    animation: beam-spin 5s linear infinite;
+  }
+}
+@keyframes beam-spin {
+  to {
+    --beam-angle: 360deg;
+  }
+}
+
+/* Headings with a soft gradient from text colour into the brand. */
+@utility text-gradient {
+  background: linear-gradient(
+    100deg,
+    var(--color-fg) 35%,
+    color-mix(in oklch, var(--color-primary) 80%, var(--color-fg)) 75%,
+    var(--color-violet) 110%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Slowly drifting coloured light behind the app (AmbientBackground). */
+@utility aurora-blob {
+  position: absolute;
+  width: 55vmax;
+  height: 55vmax;
+  border-radius: 50%;
+  opacity: var(--ims-aurora);
+  background: radial-gradient(circle, var(--blob-color) 0%, transparent 62%);
+  animation: aurora-drift 28s ease-in-out infinite alternate;
+  will-change: transform;
+}
+@keyframes aurora-drift {
+  0% {
+    transform: translate3d(-8%, -6%, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(9%, 7%, 0) scale(1.15);
+  }
+  100% {
+    transform: translate3d(-3%, 11%, 0) scale(0.92);
+  }
+}
+
+/* Click ripple (added by Button). */
+@utility ripple {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  background: currentColor;
+  opacity: 0.28;
+  transform: translate(-50%, -50%) scale(0);
+  animation: ripple-out 0.6s var(--ease-out-expo) forwards;
+}
+@keyframes ripple-out {
+  to {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0;
+  }
+}
+
+/* Thin bar that sweeps across the top on every page change. */
+@utility route-progress {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 60;
+  height: 2px;
+  transform-origin: left;
+  background: linear-gradient(90deg, var(--color-primary), var(--color-violet), var(--color-primary));
+  box-shadow: 0 0 12px var(--color-primary);
+  animation: route-progress 0.7s var(--ease-out-expo) forwards;
+}
+@keyframes route-progress {
+  0% {
+    transform: scaleX(0);
+    opacity: 1;
+  }
+  70% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleX(1);
+    opacity: 0;
+  }
+}
+
+/* Orbital loader: two counter-rotating arcs around a glowing core. */
+@utility orbit-loader {
+  position: relative;
+  display: inline-block;
+  width: 2.25rem;
+  height: 2.25rem;
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    border-radius: 50%;
+    border: 2px solid transparent;
+  }
+  &::before {
+    inset: 0;
+    border-top-color: var(--color-primary);
+    border-right-color: var(--color-primary);
+    animation: orbit-spin 0.9s linear infinite;
+    filter: drop-shadow(0 0 4px var(--color-primary));
+  }
+  &::after {
+    inset: 6px;
+    border-bottom-color: var(--color-violet);
+    border-left-color: var(--color-violet);
+    animation: orbit-spin 1.4s linear infinite reverse;
+  }
+}
+
+@keyframes orbit-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* A slowly turning dashed orbit around an icon (empty states). */
+@utility orbit-ring {
+  position: absolute;
+  inset: -7px;
+  border-radius: 9999px;
+  border: 1px dashed color-mix(in oklch, var(--color-primary) 45%, transparent);
+  animation: orbit-spin 14s linear infinite;
+}
+
+/* Gentle breathing glow (brand mark). */
+@utility glow-breathe {
+  animation: glow-breathe 4s ease-in-out infinite;
+}
+@keyframes glow-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px color-mix(in oklch, var(--color-primary) 25%, transparent), 0 0 14px -4px var(--color-primary);
+  }
+  50% {
+    box-shadow: 0 0 0 1px color-mix(in oklch, var(--color-primary) 45%, transparent), 0 0 26px -2px var(--color-primary);
+  }
+}
+
+/* A rotating light ring behind an avatar. */
+@utility avatar-ring {
+  position: absolute;
+  inset: -2px;
+  border-radius: 9999px;
+  background: conic-gradient(from var(--beam-angle), var(--color-primary), var(--color-violet), transparent 60%, var(--color-primary));
+  animation: beam-spin 6s linear infinite;
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+}
+
+/* The bell swings when new notifications arrive. */
+@utility bell-ring {
+  transform-origin: 50% 10%;
+  animation: bell-ring 0.9s var(--ease-standard);
+}
+@keyframes bell-ring {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  15% {
+    transform: rotate(16deg);
+  }
+  30% {
+    transform: rotate(-14deg);
+  }
+  45% {
+    transform: rotate(10deg);
+  }
+  60% {
+    transform: rotate(-6deg);
+  }
+  75% {
+    transform: rotate(3deg);
+  }
+}
+
+/* Digital "glitch" for big display text (404). Needs data-text equal to the text. */
+@utility glitch {
+  position: relative;
+  &::before,
+  &::after {
+    content: attr(data-text);
+    position: absolute;
+    inset: 0;
+  }
+  &::before {
+    color: var(--color-primary);
+    animation: glitch-a 2.6s steps(2, end) infinite;
+  }
+  &::after {
+    color: var(--color-violet);
+    animation: glitch-b 3.1s steps(2, end) infinite;
+  }
+}
+@keyframes glitch-a {
+  0%,
+  86%,
+  100% {
+    clip-path: inset(0 0 100% 0);
+    transform: none;
+  }
+  88% {
+    clip-path: inset(10% 0 55% 0);
+    transform: translate(-4px, 1px);
+  }
+  92% {
+    clip-path: inset(60% 0 8% 0);
+    transform: translate(3px, -1px);
+  }
+}
+@keyframes glitch-b {
+  0%,
+  80%,
+  100% {
+    clip-path: inset(0 0 100% 0);
+    transform: none;
+  }
+  83% {
+    clip-path: inset(35% 0 35% 0);
+    transform: translate(4px, 0);
+  }
+  87% {
+    clip-path: inset(5% 0 75% 0);
+    transform: translate(-3px, 1px);
+  }
+}
+
+/* Keyboard key, for the shortcuts dialog. */
+@utility kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.6rem;
+  height: 1.6rem;
+  padding: 0 0.4rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--color-border-strong);
+  border-bottom-width: 2px;
+  background: var(--color-surface-raised);
+  font: 500 0.75rem/1 var(--font-mono);
+  color: var(--color-fg);
 }
 
 /* ------------------------------------------------------------------ *

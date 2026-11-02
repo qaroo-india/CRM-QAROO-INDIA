@@ -28,7 +28,7 @@ interface ContentProps {
 
 function Overlay() {
   return (
-    <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/55 backdrop-blur-[2px] data-[state=closed]:animate-overlay-out data-[state=open]:animate-overlay-in" />
+    <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm data-[state=closed]:animate-overlay-out data-[state=open]:animate-overlay-in" />
   );
 }
 
@@ -40,7 +40,7 @@ export function DialogContent({ title, description, children, footer, size = 'md
         onInteractOutside={dismissible ? undefined : (event) => event.preventDefault()}
         className={cn(
           'fixed top-1/2 left-1/2 z-50 flex max-h-[min(90dvh,860px)] w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col',
-          'rounded-card border bg-surface shadow-card outline-none',
+          'glass rounded-card border outline-none',
           'data-[state=closed]:animate-dialog-out data-[state=open]:animate-dialog-in',
           SIZES[size],
           className,
@@ -84,7 +84,7 @@ export function DrawerContent({ title, description, children, footer, side = 'ri
       <DialogPrimitive.Content
         onInteractOutside={dismissible ? undefined : (event) => event.preventDefault()}
         className={cn(
-          'fixed inset-y-0 z-50 flex w-full flex-col border-border bg-surface shadow-card outline-none',
+          'glass fixed inset-y-0 z-50 flex w-full flex-col border-border outline-none',
           side === 'right'
             ? 'right-0 border-l data-[state=closed]:animate-drawer-out data-[state=open]:animate-drawer-in'
             : 'left-0 border-r data-[state=closed]:animate-drawer-left-out data-[state=open]:animate-drawer-left-in',
