@@ -11,7 +11,7 @@
 import cors from 'cors';
 import { rateLimit } from 'express-rate-limit';
 import helmet from 'helmet';
-import { env } from '../config/env';
+import { env, onVercel } from '../config/env';
 import { ApiError } from '../utils/ApiError';
 
 export const securityHeaders = helmet({
@@ -35,9 +35,17 @@ export const corsMiddleware = cors({
     // No Origin header: same-origin requests, curl, server-to-server, health
     // probes. CORS does not apply to them, so there is nothing to allow or deny.
     if (!origin) return callback(null, true);
+    if (allowedOrigins.has(origin)) return callback(null, true);
+    // On Vercel, allow preview and production deployments under vercel.app
+    if (onVercel || process.env.VERCEL === '1') {
+      try {
+        const url = new URL(origin);
+        if (url.hostname.endsWith('.vercel.app')) return callback(null, true);
+      } catch {}
+    }
     // Unknown origins get no CORS headers, so the browser refuses to expose the
     // response. Not an error -- throwing here would turn it into a 500.
-    return callback(null, allowedOrigins.has(origin));
+    return callback(null, false);
   },
   // Required for the HttpOnly session cookies introduced in Milestone 2.
   credentials: true,

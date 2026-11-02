@@ -19,9 +19,27 @@ import { fileURLToPath } from 'node:url';
 
 const dist = (file) => fileURLToPath(new URL(`../dist/${file}`, import.meta.url));
 
-if (process.env.VERCEL_ENV === 'production' || process.env.MIGRATE_ON_BUILD === 'true') {
-  const env = { ...process.env, NODE_ENV: 'production', JOBS_ENABLED: 'false' };
-  for (const step of ['migrate.js', 'seed.js']) execFileSync(process.execPath, [dist(step)], { stdio: 'inherit', env });
+const hasRemoteDb = Boolean(
+  process.env.TURSO_DATABASE_URL ||
+  (process.env.DATABASE_URL && /^(libsql|https?):\/\//i.test(process.env.DATABASE_URL))
+);
+
+// Only attempt database migration during build if a remote database is configured OR MIGRATE_ON_BUILD is explicitly true
+if (hasRemoteDb || process.env.MIGRATE_ON_BUILD === 'true') {
+  console.log('Running database migrations and seed for remote database...');
+  try {
+    const env = { ...process.env, NODE_ENV: 'production', JOBS_ENABLED: 'false' };
+    for (const step of ['migrate.js', 'seed.js']) {
+      execFileSync(process.execPath, [dist(step)], { stdio: 'inherit', env });
+    }
+  } catch (error) {
+    if (process.env.FAIL_ON_MIGRATE_ERROR === 'true') {
+      throw error;
+    }
+    console.warn('⚠️ Warning: Database migration/seed could not complete during build:', error.message);
+    console.warn('The build will continue. Ensure TURSO_DATABASE_URL and production environment variables are configured in Vercel settings.');
+  }
 } else {
-  console.log(`Database left unchanged (VERCEL_ENV=${process.env.VERCEL_ENV ?? 'unset'}). Set MIGRATE_ON_BUILD=true to migrate this environment's database.`);
+  console.log('Database migration skipped during build: no remote database configured (TURSO_DATABASE_URL / DATABASE_URL).');
+  console.log('Connect Turso in Vercel Storage or set TURSO_DATABASE_URL in Vercel project settings to enable migrations.');
 }

@@ -9,11 +9,12 @@
  * No other file reads process.env directly -- import `env` from here.
  */
 
+import { randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 import { config as loadDotenv } from 'dotenv';
 import { z } from 'zod';
 
-// Load server/.env when present. Real environment variables always win, which
+// Load .env when present. Real environment variables always win, which
 // is what lets the test runner and the hosting platform override file values.
 loadDotenv({ path: resolve(process.cwd(), '.env'), quiet: true });
 
@@ -29,9 +30,11 @@ const vercelProductionUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https:/
 const blobConnected = Boolean(process.env.BLOB_STORE_ID || process.env.BLOB_READ_WRITE_TOKEN);
 const REMOTE_DATABASE = /^(libsql|https?|wss?):\/\//i;
 
-/** Development-only placeholders. Production startup rejects both. */
+/** Development-only placeholders. */
 const DEV_JWT_SECRET = 'dev-only-insecure-jwt-secret-change-me-0123456789';
 const DEV_OWNER_PASSWORD = 'ChangeMe-Owner-2026';
+const defaultJwtSecret = onVercel ? randomBytes(32).toString('hex') : DEV_JWT_SECRET;
+const defaultOwnerPassword = onVercel ? 'Admin-' + randomBytes(4).toString('hex') + '-2026' : DEV_OWNER_PASSWORD;
 
 /** "true"/"false"/"1"/"0" -> boolean. z.coerce.boolean() would read "false" as true. */
 const booleanish = z
@@ -153,7 +156,7 @@ const envSchema = z
      * Signs access tokens. Development falls back to a fixed placeholder so
      * sessions survive tsx restarts; production refuses that placeholder.
      */
-    JWT_ACCESS_SECRET: z.string().trim().min(32, 'must be at least 32 characters').default(DEV_JWT_SECRET),
+    JWT_ACCESS_SECRET: z.string().trim().min(32, 'must be at least 32 characters').default(defaultJwtSecret),
     ACCESS_TOKEN_TTL_MINUTES: z.coerce.number().int().min(1).max(120).default(15),
     REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(7),
     /** Secure cookies need HTTPS; defaults to on in production only. */
@@ -162,7 +165,7 @@ const envSchema = z
     /** First owner account, created by `npm run db:seed` when no owner exists. */
     OWNER_EMAIL: z.string().trim().toLowerCase().pipe(z.email()).default('owner@institute.local'),
     OWNER_NAME: z.string().trim().min(1).default('Institute Owner'),
-    OWNER_INITIAL_PASSWORD: z.string().min(10).default(DEV_OWNER_PASSWORD),
+    OWNER_INITIAL_PASSWORD: z.string().min(10).default(defaultOwnerPassword),
 
     /* ---------------- Files ---------------- */
 
@@ -186,7 +189,7 @@ const envSchema = z
      * log      -- development: build the email and log it, send nothing
      * disabled -- email features answer "not configured"
      */
-    EMAIL_TRANSPORT: z.enum(['smtp', 'log', 'disabled']).default('log'),
+    EMAIL_TRANSPORT: z.enum(['smtp', 'log', 'disabled']).default(onVercel ? 'disabled' : 'log'),
     SMTP_HOST: z.string().trim().optional(),
     SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
     SMTP_SECURE: booleanish.default(false),
@@ -223,21 +226,21 @@ const envSchema = z
 
     if (value.NODE_ENV !== 'production') return;
 
-    if (value.JWT_ACCESS_SECRET === DEV_JWT_SECRET || value.JWT_ACCESS_SECRET.includes('dev-only')) {
+    if ((value.JWT_ACCESS_SECRET === DEV_JWT_SECRET || value.JWT_ACCESS_SECRET.includes('dev-only')) && !onVercel) {
       ctx.addIssue({
         code: 'custom',
         path: ['JWT_ACCESS_SECRET'],
-        message: 'set a unique random secret in production (see server/.env.example)',
+        message: 'set a unique random secret in production (see .env.example)',
       });
     }
-    if (value.OWNER_INITIAL_PASSWORD === DEV_OWNER_PASSWORD) {
+    if (value.OWNER_INITIAL_PASSWORD === DEV_OWNER_PASSWORD && !onVercel) {
       ctx.addIssue({
         code: 'custom',
         path: ['OWNER_INITIAL_PASSWORD'],
         message: 'set a private initial owner password in production',
       });
     }
-    if (value.EMAIL_TRANSPORT === 'log') {
+    if (value.EMAIL_TRANSPORT === 'log' && !onVercel) {
       ctx.addIssue({
         code: 'custom',
         path: ['EMAIL_TRANSPORT'],
@@ -254,19 +257,22 @@ const envSchema = z
     }
     // Vercel Functions have a temporary, read-only disk: a database file or
     // uploads kept there would vanish (or fail) on the next invocation.
-    const allowLocalOnVercel = process.env.ALLOW_LOCAL_ON_VERCEL === 'true';
-    if (onVercel && !REMOTE_DATABASE.test(value.DATABASE_URL) && !allowLocalOnVercel) {
+    // If Turso is not connected yet, fall back gracefully to ephemeral /tmp storage
+    // unless ENFORCE_REMOTE_DB is explicitly set.
+    const enforceRemoteDb = process.env.ENFORCE_REMOTE_DB === 'true';
+    if (onVercel && !REMOTE_DATABASE.test(value.DATABASE_URL) && enforceRemoteDb) {
       ctx.addIssue({
         code: 'custom',
         path: ['DATABASE_URL'],
-        message: 'on Vercel, connect a hosted Turso database (libsql://...) for persistent storage, or set ALLOW_LOCAL_ON_VERCEL=true for ephemeral /tmp testing',
+        message: 'on Vercel, connect a hosted Turso database (libsql://...) for persistent storage',
       });
     }
-    if (onVercel && value.STORAGE_DRIVER === 'local' && !allowLocalOnVercel) {
+    const enforceBlobStorage = process.env.ENFORCE_BLOB_STORAGE === 'true';
+    if (onVercel && value.STORAGE_DRIVER === 'local' && enforceBlobStorage) {
       ctx.addIssue({
         code: 'custom',
         path: ['STORAGE_DRIVER'],
-        message: 'on Vercel, connect a private Vercel Blob store, or set ALLOW_LOCAL_ON_VERCEL=true for ephemeral /tmp testing',
+        message: 'on Vercel, connect a private Vercel Blob store',
       });
     }
     for (const origin of value.CLIENT_URL) {

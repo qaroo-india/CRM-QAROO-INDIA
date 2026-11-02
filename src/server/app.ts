@@ -41,6 +41,7 @@ export function createApp(): Express {
   app.use(express.urlencoded({ extended: false, limit: '1mb' }));
   app.use(cookieParser());
 
+  app.get(['/api', '/api/v1'], (_req, res) => res.json({ name: 'CRM QAROO INDIA API', status: 'ok', version: '1.0.0' }));
   app.use(['/api/v1', '/v1'], apiRateLimit, ensureSettings, v1Router);
   app.get(['/api/health', '/health'], (_req, res) => res.redirect('/api/v1/health'));
 
