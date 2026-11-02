@@ -15,11 +15,12 @@ the full student lifecycle:
 - notifications, documents, bulk import, staff permissions and a full audit trail.
 
 **Stack:** React 19 · Vite 8 · Tailwind CSS 4 · TanStack Query · Recharts · Express 5 ·
-SQLite (better-sqlite3) · Drizzle ORM · Zod 4 · TypeScript 7 · Vitest 5 · PDFKit · ExcelJS
+SQLite via libSQL (a local file, or Turso in production) · Drizzle ORM · Zod 4 · TypeScript 7 ·
+Vitest 5 · PDFKit · ExcelJS · Vercel (Services, Blob, Cron)
 
 > **Status:** all milestones, including the campus and portal additions, are built and
 > verified locally (typecheck, tests, production build, live smoke test). It is **not
-> deployed**: deployment needs your Vercel and Render accounts. See
+> deployed**: deployment needs your Vercel account, with Turso and Vercel Blob connected. See
 > [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ---
@@ -29,7 +30,7 @@ SQLite (better-sqlite3) · Drizzle ORM · Zod 4 · TypeScript 7 · Vitest 5 · P
 **Prerequisites:**
 
 - Node.js 22 or newer (24 LTS recommended; see `.nvmrc`), npm 10+, and Git.
-- No database server, compiler or cloud account. SQLite runs in-process from prebuilt binaries for Windows, macOS and Linux.
+- No database server, compiler or cloud account. The database is a local SQLite file (libSQL, prebuilt binaries for Windows, macOS and Linux).
 
 ```bash
 # 1. Install all three workspaces
@@ -147,11 +148,12 @@ Production (server workspace): `npm run start:prod --workspace=server` runs
 │   │   ├── services/ ledger (balances), mailer, storage, sequences, audit, clock
 │   │   ├── pdf/     receipt and report building blocks (Inter font for ₹)
 │   │   └── jobs.ts  scheduled reports and reminder sweep (JOBS_ENABLED)
-│   └── tests/       integration tests through HTTP on in-memory SQLite
+│   └── tests/       integration tests through HTTP on a throwaway SQLite file
 ├── client/          @ims/client: React SPA (features/<domain>, components/ui, charts)
 ├── docs/            architecture, API, design system, deployment, security
 ├── vercel.json      web app hosting, /api rewrite, security headers
-└── render.yaml      API hosting blueprint (persistent disk, env vars)
+├── vercel.json      Vercel services (client at /, server at /api), cron, security headers
+└── render.yaml      alternative: the API as a long-running server on Render
 ```
 
 ---
@@ -164,7 +166,8 @@ npm test --workspace=server      # API, money, reports, exports, permissions, po
 npm test --workspace=client      # UI states, formatting, CSP hash
 ```
 
-Server tests use an **in-memory SQLite database** per test file. They never touch
+Server tests use a **throwaway SQLite database** per test file (`DATABASE_URL=:memory:`
+becomes a temporary file, deleted on exit). They never touch
 `server/data/`, need no `.env`, and simulate email with an injected transport, so
 nothing is sent.
 
@@ -189,7 +192,7 @@ message naming the variable.
 | Status page says **API unreachable** | The API isn't running, or stopped on a config error. Check the `npm run dev` terminal: env errors name the exact variable. |
 | `Port 5000 is already in use` | Stop the other process, or set `PORT` in `server/.env` **and** `VITE_API_PROXY_TARGET` in `client/.env` to the same new port. |
 | Status page says **Setup incomplete** | Run the command shown on the card: `npm run db:migrate` or `npm run db:seed`. |
-| `gyp ERR! find VS` during install | Something bypassed `.npmrc` (for example a global `ignore-scripts=false`). better-sqlite3 needs no compiling: run `npm install --ignore-scripts`. |
+| `gyp ERR! find VS` during install | Something bypassed `.npmrc` (for example a global `ignore-scripts=false`). No dependency needs compiling: run `npm install --ignore-scripts`. |
 | `Could not locate the bindings file` | Node's platform or architecture changed after installing. Run `npm ci` again. |
 | `SQLITE_BUSY` / database locked | Another process (e.g. `db:studio`) holds a write lock. Close it; the API waits up to 5 s. |
 | `ECONNREFUSED ::1:5000` in the Vite terminal | Keep `VITE_API_PROXY_TARGET` as `127.0.0.1`, not `localhost`. |
@@ -205,6 +208,6 @@ Production problems are covered in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#7-tro
 
 - [Architecture](docs/ARCHITECTURE.md): decisions, data model (34 tables), financial definitions, known limitations
 - [API reference](docs/API.md): conventions, error codes, every endpoint with its permission
-- [Deployment](docs/DEPLOYMENT.md): Vercel + Render step by step, backups, restore drill
+- [Deployment](docs/DEPLOYMENT.md): Vercel (services, Turso, Blob, Cron) step by step, limits, backups, restore drill
 - [Security review](docs/SECURITY.md): controls, how each is verified, residual risks
 - [Design system](docs/DESIGN-SYSTEM.md): tokens, verified contrast, charts, components

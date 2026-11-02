@@ -19,22 +19,22 @@ import { listNotifications, markAllRead, markRead, runNotificationSweep, unreadC
 
 export const notificationsRouter = Router();
 
-notificationsRouter.get('/', (req, res) => {
-  ok(res, listNotifications(contextFrom(req).actorId, parseQuery(notificationListQuerySchema, req)));
+notificationsRouter.get('/', async (req, res) => {
+  ok(res, await listNotifications(contextFrom(req).actorId, parseQuery(notificationListQuerySchema, req)));
 });
 
-notificationsRouter.get('/unread-count', (req, res) => {
-  ok(res, { unread: unreadCount(contextFrom(req).actorId) });
+notificationsRouter.get('/unread-count', async (req, res) => {
+  ok(res, { unread: await unreadCount(contextFrom(req).actorId) });
 });
 
-notificationsRouter.post('/read-all', (req, res) => {
-  ok(res, { updated: markAllRead(contextFrom(req).actorId) });
+notificationsRouter.post('/read-all', async (req, res) => {
+  ok(res, { updated: await markAllRead(contextFrom(req).actorId) });
 });
 
-notificationsRouter.post('/sweep', requireOwner, (_req, res) => {
-  ok(res, runNotificationSweep());
+notificationsRouter.post('/sweep', requireOwner, async (_req, res) => {
+  ok(res, await runNotificationSweep());
 });
 
-notificationsRouter.post('/:id/read', (req, res) => {
-  ok(res, markRead(contextFrom(req).actorId, paramId(req)));
+notificationsRouter.post('/:id/read', async (req, res) => {
+  ok(res, await markRead(contextFrom(req).actorId, paramId(req)));
 });

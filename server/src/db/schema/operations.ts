@@ -5,6 +5,7 @@
 import {
   DOCUMENT_ACCESS_LEVELS,
   DOCUMENT_OWNER_TYPES,
+  IMPORT_ENTITIES,
   JOB_STATUSES,
   NOTIFICATION_SEVERITIES,
   NOTIFICATION_TYPES,
@@ -14,6 +15,8 @@ import {
   SCHEDULE_CADENCES,
   type DocumentAccessLevel,
   type DocumentOwnerType,
+  type ImportEntity,
+  type ImportRowResult,
   type JobStatus,
   type NotificationSeverity,
   type NotificationType,
@@ -192,3 +195,30 @@ export type Notification = typeof notifications.$inferSelect;
 export type ReportJob = typeof reportJobs.$inferSelect;
 export type ReportDelivery = typeof reportDeliveries.$inferSelect;
 export type ReportSchedule = typeof reportSchedules.$inferSelect;
+
+/**
+ * A checked import file waiting for the user to confirm it (30 minutes).
+ * Kept in the database, not in memory, so the confirming request may reach a
+ * different server instance; confirming deletes the row, so one preview
+ * imports at most once.
+ */
+export const importPreviews = table(
+  'import_previews',
+  {
+    token: str('token').primaryKey(),
+    entity: enumStr('entity', IMPORT_ENTITIES).$type<ImportEntity>().notNull(),
+    userId: ref('user_id')
+      .notNull()
+      .references(() => users.id),
+    fileName: str('file_name').notNull(),
+    rows: json<ImportRowResult[]>('rows').notNull(),
+    expiresAt: instant('expires_at').notNull(),
+    createdAt: instant('created_at')
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [
+    index('import_previews_expires_idx').on(t.expiresAt),
+    check('import_previews_entity_check', inList(t.entity, IMPORT_ENTITIES)),
+  ],
+);

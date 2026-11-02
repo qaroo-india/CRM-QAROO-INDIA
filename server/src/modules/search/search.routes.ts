@@ -28,7 +28,7 @@ interface Hit {
 
 const PER_TYPE = 5;
 
-searchRouter.get('/', (req, res) => {
+searchRouter.get('/', async (req, res) => {
   const { q } = parseQuery(searchQuerySchema, req);
   const ctx = contextFrom(req);
   const digits = q.replace(/\D/g, '');
@@ -37,13 +37,13 @@ searchRouter.get('/', (req, res) => {
   if (hasPermission(ctx.permissions, 'students:read')) {
     const conditions = [containsText(students.fullName, q), containsText(students.studentCode, q), containsText(students.email, q)];
     if (digits.length >= 4) conditions.push(containsText(students.phoneNormalized, digits));
-    for (const s of db.select().from(students).where(or(...conditions)).orderBy(desc(students.createdAt)).limit(PER_TYPE).all()) {
+    for (const s of await db.select().from(students).where(or(...conditions)).orderBy(desc(students.createdAt)).limit(PER_TYPE).all()) {
       hits.push({ type: 'student', id: s.id, title: s.fullName, subtitle: `${s.studentCode} · ${s.phone}`, href: `/students/${s.id}` });
     }
   }
 
   if (hasPermission(ctx.permissions, 'admissions:read')) {
-    const rows = db
+    const rows = await db
       .select({ id: admissions.id, number: admissions.admissionNumber, status: admissions.status, studentId: students.id, studentName: students.fullName, courseName: courses.name })
       .from(admissions)
       .innerJoin(students, eq(students.id, admissions.studentId))
@@ -60,13 +60,13 @@ searchRouter.get('/', (req, res) => {
   if (hasPermission(ctx.permissions, 'leads:read')) {
     const conditions = [containsText(leads.name, q), containsText(leads.leadCode, q), containsText(leads.email, q)];
     if (digits.length >= 4) conditions.push(containsText(leads.phoneNormalized, digits));
-    for (const l of db.select().from(leads).where(or(...conditions)).orderBy(desc(leads.enquiryDate)).limit(PER_TYPE).all()) {
+    for (const l of await db.select().from(leads).where(or(...conditions)).orderBy(desc(leads.enquiryDate)).limit(PER_TYPE).all()) {
       hits.push({ type: 'lead', id: l.id, title: l.name, subtitle: `${l.leadCode} · ${l.status.replace(/_/g, ' ')}`, href: `/leads?lead=${l.id}` });
     }
   }
 
   if (hasPermission(ctx.permissions, 'courses:read')) {
-    for (const c of db.select().from(courses).where(or(containsText(courses.name, q), containsText(courses.code, q))).limit(PER_TYPE).all()) {
+    for (const c of await db.select().from(courses).where(or(containsText(courses.name, q), containsText(courses.code, q))).limit(PER_TYPE).all()) {
       hits.push({ type: 'course', id: c.id, title: c.name, subtitle: c.code, href: `/courses?course=${c.id}` });
     }
   }

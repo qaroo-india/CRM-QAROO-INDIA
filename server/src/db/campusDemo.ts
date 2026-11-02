@@ -135,9 +135,12 @@ export interface CampusDemoResult {
 }
 
 /** Has anything been recorded in the campus areas yet? */
-export function campusAreasEmpty(): boolean {
+export async function campusAreasEmpty(): Promise<boolean> {
   const tables = [classSessions, exams, materials, certificates, placementDrives, leaveRequests, tasks, inventoryItems] as const;
-  return tables.every((t) => (db.select({ n: count() }).from(t).get()?.n ?? 0) === 0);
+  for (const t of tables) {
+    if (((await db.select({ n: count() }).from(t).get())?.n ?? 0) > 0) return false;
+  }
+  return true;
 }
 
 const offset = (day: string, hhmm: string) => `${day}T${hhmm}:00+05:30`;
@@ -155,12 +158,12 @@ export async function loadCampusDemo(owner: RequestContext): Promise<CampusDemoR
   };
   const counts = { classes: 0, registers: 0, exams: 0, attempts: 0, materials: 0, certificates: 0, drives: 0, driveApplicants: 0, leave: 0, tasks: 0, inventoryItems: 0, inventoryRequests: 0 };
 
-  const running = db.select().from(batches).where(and(eq(batches.status, 'running'), like(batches.notes, `%${MARK}%`))).orderBy(asc(batches.batchCode)).all();
-  const completed = db.select().from(batches).where(and(eq(batches.status, 'completed'), like(batches.notes, `%${MARK}%`))).orderBy(asc(batches.batchCode)).all();
+  const running = await db.select().from(batches).where(and(eq(batches.status, 'running'), like(batches.notes, `%${MARK}%`))).orderBy(asc(batches.batchCode)).all();
+  const completed = await db.select().from(batches).where(and(eq(batches.status, 'completed'), like(batches.notes, `%${MARK}%`))).orderBy(asc(batches.batchCode)).all();
   if (running.length === 0) throw new Error('No running demo batches found. Load the main demo first with "npm run db:demo".');
   const prefix = (code: string) => code.split('-')[0]!;
-  const roster = (batchId: string) =>
-    db
+  const roster = async (batchId: string) =>
+    await db
       .select({ admissionId: batchAssignments.admissionId, studentId: batchAssignments.studentId, email: students.email, name: students.fullName })
       .from(batchAssignments)
       .innerJoin(students, eq(students.id, batchAssignments.studentId))
@@ -169,15 +172,15 @@ export async function loadCampusDemo(owner: RequestContext): Promise<CampusDemoR
       .all();
   // The batch and student whose portal login the demo hands out.
   const showcase = running[0]!;
-  const showcaseStudent = roster(showcase.id).find((p) => p.email);
+  const showcaseStudent = (await roster(showcase.id)).find((p) => p.email);
 
   /* Portal and faculty logins first, so they receive the notifications below. */
   const password = `Demo-${randomBytes(6).toString('base64url')}-26`;
   let studentLogin: string | null = null;
-  if (showcaseStudent && (await attempt('student login', () => grantStudentPortal(owner, showcaseStudent.studentId, { temporaryPassword: password })))) studentLogin = showcaseStudent.email;
-  const trainer = showcase.trainerId ? db.select().from(trainers).where(eq(trainers.id, showcase.trainerId)).get() : undefined;
+  if (showcaseStudent && (await attempt('student login', async () => await grantStudentPortal(owner, showcaseStudent.studentId, { temporaryPassword: password })))) studentLogin = showcaseStudent.email;
+  const trainer = showcase.trainerId ? await db.select().from(trainers).where(eq(trainers.id, showcase.trainerId)).get() : undefined;
   let facultyLogin: string | null = null;
-  if (trainer?.email && (await attempt('faculty login', () => grantFacultyLogin(owner, trainer.id, { temporaryPassword: password })))) facultyLogin = trainer.email;
+  if (trainer?.email && (await attempt('faculty login', async () => await grantFacultyLogin(owner, trainer.id, { temporaryPassword: password })))) facultyLogin = trainer.email;
 
   /* Class schedule and attendance --------------------------------------- */
   // Classes follow each batch's own timetable text ("Mon–Fri 18:00–20:00",
@@ -192,8 +195,8 @@ export async function loadCampusDemo(owner: RequestContext): Promise<CampusDemoR
   for (const [i, b] of running.entries()) {
     const firstDay = b.startDate > addDays(today, -27) ? b.startDate : addDays(today, -27);
     const slot = timetable(b.schedule, i);
-    const made = await attempt('schedule', () =>
-      createSessions(owner, {
+    const made = await attempt('schedule', async () =>
+      await createSessions(owner, {
         batchId: b.id,
         title: `${b.batchCode} class`,
         kind: 'lecture',
@@ -209,13 +212,13 @@ export async function loadCampusDemo(owner: RequestContext): Promise<CampusDemoR
     const past = made.filter((s) => s.date < today);
     // One cancelled class, for the record.
     const cancelled = past.at(-4);
-    if (cancelled) await attempt('cancel', () => setSessionStatus(owner, cancelled.id, { status: 'cancelled', cancelReason: `${MARK} Trainer unwell` }));
+    if (cancelled) await attempt('cancel', async () => await setSessionStatus(owner, cancelled.id, { status: 'cancelled', cancelReason: `${MARK} Trainer unwell` }));
     for (const s of past) {
       if (s.id === cancelled?.id) continue;
-      const rows = getRoster(owner, b.id, s.date).rows;
+      const rows = (await getRoster(owner, b.id, s.date)).rows;
       if (rows.length === 0) continue;
-      const saved = await attempt('attendance', () =>
-        saveAttendance(owner, {
+      const saved = await attempt('attendance', async () =>
+        await saveAttendance(owner, {
           batchId: b.id,
           date: s.date,
           classSessionId: s.id,
@@ -228,7 +231,7 @@ export async function loadCampusDemo(owner: RequestContext): Promise<CampusDemoR
       );
       if (saved) {
         counts.registers += 1;
-        await attempt('class done', () => setSessionStatus(owner, s.id, { status: 'completed' }));
+        await attempt('class done', async () => await setSessionStatus(owner, s.id, { status: 'completed' }));
       }
     }
   }
@@ -237,10 +240,10 @@ export async function loadCampusDemo(owner: RequestContext): Promise<CampusDemoR
   for (const b of running) {
     const bank = QUESTIONS[prefix(b.batchCode)];
     if (!bank) continue;
-    const people = roster(b.id);
+    const people = await roster(b.id);
     for (const [n, slice] of [[1, bank.slice(0, 5)], [2, bank.slice(1, 6)]] as const) {
-      const exam = await attempt('exam', () =>
-        createExam(owner, {
+      const exam = await attempt('exam', async () =>
+        await createExam(owner, {
           title: `${b.batchCode} unit test ${n} (demo)`,
           kind: 'unit_test',
           batchId: b.id,
@@ -252,28 +255,28 @@ export async function loadCampusDemo(owner: RequestContext): Promise<CampusDemoR
         }),
       );
       if (!exam) continue;
-      for (const q of slice) await attempt('question', () => addQuestion(owner, exam.id, { text: q.text, marks: 1, options: q.options.map((text, k) => ({ text, isCorrect: k === q.correct })) }));
-      if (!(await attempt('publish', () => setExamStatus(owner, exam.id, { status: 'published' })))) continue;
+      for (const q of slice) await attempt('question', async () => await addQuestion(owner, exam.id, { text: q.text, marks: 1, options: q.options.map((text, k) => ({ text, isCorrect: k === q.correct })) }));
+      if (!(await attempt('publish', async () => await setExamStatus(owner, exam.id, { status: 'published' })))) continue;
       counts.exams += 1;
       // Most of the batch (always the showcase student) has taken test 1; test 2 is left open to try.
       if (n !== 1) continue;
       for (const p of people) {
         if (p.studentId !== showcaseStudent?.studentId && !chance(0.8)) continue;
-        const paper = await attempt('start', () => startAttempt(p.studentId, exam.id));
+        const paper = await attempt('start', async () => await startAttempt(p.studentId, exam.id));
         if (!paper) continue;
         await answer(p.studentId, paper, chance(0.7) ? 0.85 : 0.45);
-        if (await attempt('submit', () => submitAttempt(p.studentId, paper.attemptId))) counts.attempts += 1;
+        if (await attempt('submit', async () => await submitAttempt(p.studentId, paper.attemptId))) counts.attempts += 1;
       }
     }
   }
 
   async function answer(studentId: string, paper: ExamPaper, skill: number) {
     const correct = new Map(
-      db
+      (await db
         .select({ questionId: examOptions.questionId, id: examOptions.id })
         .from(examOptions)
         .where(and(inArray(examOptions.questionId, paper.questions.map((q) => q.id)), eq(examOptions.isCorrect, true)))
-        .all()
+        .all())
         .map((o) => [o.questionId, o.id]),
     );
     for (const q of paper.questions) {
@@ -281,7 +284,7 @@ export async function loadCampusDemo(owner: RequestContext): Promise<CampusDemoR
       const right = correct.get(q.id);
       const wrong = q.options.filter((o) => o.id !== right);
       const optionId = chance(skill) || wrong.length === 0 ? right! : pick(wrong).id;
-      await attempt('answer', () => saveAnswer(studentId, paper.attemptId, { questionId: q.id, optionId }));
+      await attempt('answer', async () => await saveAnswer(studentId, paper.attemptId, { questionId: q.id, optionId }));
     }
   }
 
@@ -290,24 +293,24 @@ export async function loadCampusDemo(owner: RequestContext): Promise<CampusDemoR
     const links = LINKS[prefix(b.batchCode)];
     if (!links) continue;
     for (const [k, l] of links.entries()) {
-      const made = await attempt('material', () =>
-        createMaterial(owner, undefined, { title: `${l.title} (demo)`, description: `${MARK} Recommended reading.`, kind: l.kind, courseId: b.courseId, batchId: k === 0 ? b.id : undefined, externalUrl: l.url, isPublished: true }),
+      const made = await attempt('material', async () =>
+        await createMaterial(owner, undefined, { title: `${l.title} (demo)`, description: `${MARK} Recommended reading.`, kind: l.kind, courseId: b.courseId, batchId: k === 0 ? b.id : undefined, externalUrl: l.url, isPublished: true }),
       );
       if (made) counts.materials += 1;
     }
   }
 
   /* Certificates for completed courses ------------------------------------- */
-  const done = db.select({ id: admissions.id, studentId: admissions.studentId }).from(admissions).where(eq(admissions.status, 'completed')).orderBy(asc(admissions.admissionNumber)).all().slice(0, 10);
+  const done = (await db.select({ id: admissions.id, studentId: admissions.studentId }).from(admissions).where(eq(admissions.status, 'completed')).orderBy(asc(admissions.admissionNumber)).all()).slice(0, 10);
   // A mix of every stage; "requested" ones come from the student, through the portal path.
   const CERT_FLOW = ['issued', 'requested', 'issued', 'approved', 'under_review', 'issued'] as const;
   for (const [i, a] of done.entries()) {
     const target = CERT_FLOW[i % CERT_FLOW.length]!;
     const byStudent = target === 'requested';
-    const cert = await attempt('certificate', () => requestCertificate(owner, { admissionId: a.id, requestNote: byStudent ? `${MARK} Please print my name exactly as registered.` : MARK }, byStudent ? a.studentId : null));
+    const cert = await attempt('certificate', async () => await requestCertificate(owner, { admissionId: a.id, requestNote: byStudent ? `${MARK} Please print my name exactly as registered.` : MARK }, byStudent ? a.studentId : null));
     if (!cert) continue;
     counts.certificates += 1;
-    if (target !== 'requested') await attempt('certificate decision', () => decideCertificate(owner, cert.id, { status: target }));
+    if (target !== 'requested') await attempt('certificate decision', async () => await decideCertificate(owner, cert.id, { status: target }));
   }
 
   /* Placement drives -------------------------------------------------------- */
@@ -320,8 +323,8 @@ export async function loadCampusDemo(owner: RequestContext): Promise<CampusDemoR
   ];
   for (const d of driveSpecs) {
     if (d.batchList.length === 0) continue;
-    const drive = await attempt('drive', () =>
-      createDrive(owner, {
+    const drive = await attempt('drive', async () =>
+      await createDrive(owner, {
         companyName: d.companyName,
         roleTitle: d.roleTitle,
         description: `${MARK} Campus hiring drive. Written test, then a technical and an HR round.`,
@@ -339,24 +342,24 @@ export async function loadCampusDemo(owner: RequestContext): Promise<CampusDemoR
     );
     if (!drive) continue;
     counts.drives += 1;
-    const profiles = db
+    const profiles = (await db
       .select({ id: placementProfiles.id })
       .from(placementProfiles)
       .innerJoin(batchAssignments, eq(batchAssignments.admissionId, placementProfiles.admissionId))
       .where(and(inArray(batchAssignments.batchId, d.batchList.map((b) => b.id)), eq(placementProfiles.track, d.track)))
-      .all()
+      .all())
       .map((p) => p.id)
       .filter(() => chance(0.6))
       .slice(0, 8);
     if (profiles.length) {
-      const added = await attempt('applicants', () => addApplicants(owner, drive.id, { profileIds: profiles }));
+      const added = await attempt('applicants', async () => await addApplicants(owner, drive.id, { profileIds: profiles }));
       counts.driveApplicants += added?.added ?? 0;
     }
   }
 
   /* Staff: leave, tasks, inventory ------------------------------------------ */
-  const team = db.select().from(users).where(and(eq(users.role, 'staff'), eq(users.accountType, 'team'), like(users.email, '%@demo.invalid'), eq(users.isActive, true))).orderBy(asc(users.email)).all();
-  const facultyUser = facultyLogin ? db.select().from(users).where(eq(users.email, facultyLogin)).get() : undefined;
+  const team = await db.select().from(users).where(and(eq(users.role, 'staff'), eq(users.accountType, 'team'), like(users.email, '%@demo.invalid'), eq(users.isActive, true))).orderBy(asc(users.email)).all();
+  const facultyUser = facultyLogin ? await db.select().from(users).where(eq(users.email, facultyLogin)).get() : undefined;
   const as = (u: typeof users.$inferSelect): RequestContext =>
     u.accountType === 'faculty'
       ? { actorId: u.id, actorName: u.name, permissions: [...u.permissions], isOwner: false, accountType: 'faculty', trainerId: trainer?.id ?? null }
@@ -373,11 +376,11 @@ export async function loadCampusDemo(owner: RequestContext): Promise<CampusDemoR
   for (const l of leavePlan) {
     const u = people[l.who];
     if (!u) continue;
-    const made = await attempt('leave', () => requestLeave(as(u), { type: l.type, startDate: addDays(today, l.from), endDate: addDays(today, l.to), reason: `${MARK} ${l.reason}` }));
+    const made = await attempt('leave', async () => await requestLeave(as(u), { type: l.type, startDate: addDays(today, l.from), endDate: addDays(today, l.to), reason: `${MARK} ${l.reason}` }));
     if (!made) continue;
     counts.leave += 1;
-    if (l.decide === 'approve') await attempt('leave decision', () => decideLeave(owner, made.id, { decision: 'approve' }));
-    if (l.decide === 'reject') await attempt('leave decision', () => decideLeave(owner, made.id, { decision: 'reject', reviewNote: 'Month-end closing week; please pick other days.' }));
+    if (l.decide === 'approve') await attempt('leave decision', async () => await decideLeave(owner, made.id, { decision: 'approve' }));
+    if (l.decide === 'reject') await attempt('leave decision', async () => await decideLeave(owner, made.id, { decision: 'reject', reviewNote: 'Month-end closing week; please pick other days.' }));
   }
 
   const taskPlan = [
@@ -390,10 +393,10 @@ export async function loadCampusDemo(owner: RequestContext): Promise<CampusDemoR
   ] as const;
   for (const t of taskPlan) {
     if (!t.to) continue;
-    const made = await attempt('task', () => createTask(owner, undefined, { title: `${t.title} (demo)`, details: MARK, assignedToId: t.to!.id, priority: t.priority, dueDate: addDays(today, t.due), batchId: 'batch' in t ? t.batch : undefined }));
+    const made = await attempt('task', async () => await createTask(owner, undefined, { title: `${t.title} (demo)`, details: MARK, assignedToId: t.to!.id, priority: t.priority, dueDate: addDays(today, t.due), batchId: 'batch' in t ? t.batch : undefined }));
     if (!made) continue;
     counts.tasks += 1;
-    if (t.status !== 'todo') await attempt('task status', () => setTaskStatus(as(t.to!), made.id, { status: t.status }));
+    if (t.status !== 'todo') await attempt('task status', async () => await setTaskStatus(as(t.to!), made.id, { status: t.status }));
   }
 
   const itemPlan = [
@@ -406,7 +409,7 @@ export async function loadCampusDemo(owner: RequestContext): Promise<CampusDemoR
   ] as const;
   const items = new Map<string, string>();
   for (const it of itemPlan) {
-    const made = await attempt('item', () => saveItem(owner, { ...it, purchasedOn: addDays(today, -120), notes: MARK }));
+    const made = await attempt('item', async () => await saveItem(owner, { ...it, purchasedOn: addDays(today, -120), notes: MARK }));
     if (made) {
       items.set(it.assetTag, made.id);
       counts.inventoryItems += 1;
@@ -422,15 +425,15 @@ export async function loadCampusDemo(owner: RequestContext): Promise<CampusDemoR
   for (const r of requestPlan) {
     const itemId = items.get(r.tag);
     if (!r.who || !itemId) continue;
-    const made = await attempt('inventory request', () => requestItem(as(r.who!), { itemId, quantity: r.qty, reason: `${MARK} ${r.reason}`, neededBy: addDays(today, 3) }));
+    const made = await attempt('inventory request', async () => await requestItem(as(r.who!), { itemId, quantity: r.qty, reason: `${MARK} ${r.reason}`, neededBy: addDays(today, 3) }));
     if (!made) continue;
     counts.inventoryRequests += 1;
-    if (r.action === 'issue') await attempt('issue', () => decideRequest(owner, made.id, { action: 'issue' }));
+    if (r.action === 'issue') await attempt('issue', async () => await decideRequest(owner, made.id, { action: 'issue' }));
     if (r.action === 'return') {
-      await attempt('issue', () => decideRequest(owner, made.id, { action: 'issue' }));
-      await attempt('return', () => decideRequest(owner, made.id, { action: 'return' }));
+      await attempt('issue', async () => await decideRequest(owner, made.id, { action: 'issue' }));
+      await attempt('return', async () => await decideRequest(owner, made.id, { action: 'return' }));
     }
-    if (r.action === 'reject') await attempt('reject', () => decideRequest(owner, made.id, { action: 'reject', reviewNote: 'Two spares are already on the accounts desk.' }));
+    if (r.action === 'reject') await attempt('reject', async () => await decideRequest(owner, made.id, { action: 'reject', reviewNote: 'Two spares are already on the accounts desk.' }));
   }
 
   return { counts, logins: { student: studentLogin, faculty: facultyLogin, password: studentLogin || facultyLogin ? password : null }, failures };

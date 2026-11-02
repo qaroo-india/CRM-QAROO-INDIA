@@ -25,29 +25,29 @@ const idempotencyKey = z
   .regex(/^[A-Za-z0-9_-]{8,100}$/, 'Idempotency-Key must be 8-100 letters, digits, dashes or underscores')
   .optional();
 
-admissionsRouter.get('/', requirePermission('admissions:read'), (req, res) => {
-  ok(res, listAdmissions(parseQuery(admissionListQuerySchema, req)));
+admissionsRouter.get('/', requirePermission('admissions:read'), async (req, res) => {
+  ok(res, await listAdmissions(parseQuery(admissionListQuerySchema, req)));
 });
 
-admissionsRouter.get('/:id', requirePermission('admissions:read'), (req, res) => {
-  ok(res, getAdmission(paramId(req)));
+admissionsRouter.get('/:id', requirePermission('admissions:read'), async (req, res) => {
+  ok(res, await getAdmission(paramId(req)));
 });
 
-admissionsRouter.post('/', requirePermission('admissions:write'), (req, res) => {
+admissionsRouter.post('/', requirePermission('admissions:write'), async (req, res) => {
   const key = idempotencyKey.parse(req.get('idempotency-key') ?? undefined);
-  const result = createAdmission(contextFrom(req), req.body, key);
+  const result = await createAdmission(contextFrom(req), req.body, key);
   if (result.created) created(res, result.admission);
   else ok(res, result.admission);
 });
 
-admissionsRouter.patch('/:id', requirePermission('admissions:write'), (req, res) => {
-  ok(res, updateAdmission(contextFrom(req), paramId(req), req.body));
+admissionsRouter.patch('/:id', requirePermission('admissions:write'), async (req, res) => {
+  ok(res, await updateAdmission(contextFrom(req), paramId(req), req.body));
 });
 
-admissionsRouter.post('/:id/status', requirePermission('admissions:write'), (req, res) => {
+admissionsRouter.post('/:id/status', requirePermission('admissions:write'), async (req, res) => {
   const ctx = contextFrom(req);
   if (req.body?.action === 'cancel' && !hasPermission(ctx.permissions, 'admissions:cancel')) {
     throw ApiError.forbidden('Cancelling an admission needs the "admissions:cancel" permission.');
   }
-  ok(res, changeAdmissionStatus(ctx, paramId(req), req.body));
+  ok(res, await changeAdmissionStatus(ctx, paramId(req), req.body));
 });

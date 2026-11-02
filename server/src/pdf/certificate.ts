@@ -50,5 +50,5 @@ export async function renderCertificatePdf(data: CertificateData, institute: Ins
   doc.font('Inter-SemiBold').fontSize(10).fillColor(PDF_COLORS.ink).text(`Reference ${data.referenceNumber}`, w - 380, footY, { width: 300, align: 'right' });
   doc.font('Inter').fontSize(8.5).fillColor(PDF_COLORS.muted).text(`Verify at ${data.verifyUrl}`, w - 380, footY + 16, { width: 300, align: 'right' });
 
-  return toBuffer(doc);
+  return await toBuffer(doc);
 }

@@ -20,16 +20,16 @@ import { listSessions } from '../schedule/schedule.service';
 import type { RequestContext } from '../../utils/context';
 
 
-function studentRow(studentId: string) {
-  const s = db.select().from(students).where(eq(students.id, studentId)).get();
+async function studentRow(studentId: string) {
+  const s = await db.select().from(students).where(eq(students.id, studentId)).get();
   if (!s) throw ApiError.notFound('Student');
   return s;
 }
 
 /** The batch an admission is in now (active), else the last one it was in. */
-function currentBatches(admissionIds: string[]) {
+async function currentBatches(admissionIds: string[]) {
   if (admissionIds.length === 0) return new Map<string, PortalAdmission['batch']>();
-  const rows = db
+  const rows = await db
     .select({ admissionId: batchAssignments.admissionId, status: batchAssignments.status, assignedOn: batchAssignments.assignedOn, id: batches.id, batchCode: batches.batchCode, name: batches.name, schedule: batches.schedule, trainerName: trainers.name })
     .from(batchAssignments)
     .innerJoin(batches, eq(batches.id, batchAssignments.batchId))
@@ -45,14 +45,14 @@ function currentBatches(admissionIds: string[]) {
   return map;
 }
 
-function myAdmissions(studentId: string): PortalAdmission[] {
-  const rows = admissionQuery().where(and(eq(admissions.studentId, studentId), sql`${admissions.status} <> 'cancelled'`)).orderBy(desc(admissions.admissionDate)).all();
+async function myAdmissions(studentId: string): Promise<PortalAdmission[]> {
+  const rows = await admissionQuery().where(and(eq(admissions.studentId, studentId), sql`${admissions.status} <> 'cancelled'`)).orderBy(desc(admissions.admissionDate)).all();
   const ids = rows.map((r) => r.admission.id);
-  const batchMap = currentBatches(ids);
-  const attendance = countsByAdmission({ admissionIds: ids });
+  const batchMap = await currentBatches(ids);
+  const attendance = await countsByAdmission({ admissionIds: ids });
   const today = instituteToday();
   const next = ids.length
-    ? db.all<{ admissionId: string; dueDate: string; owed: number }>(sql`
+    ? await db.all<{ admissionId: string; dueDate: string; owed: number }>(sql`
         select i.admission_id as admissionId, i.due_date as dueDate, max(0, i.amount_minor - ${instalmentPaidSql()}) as owed
         from instalments i
         where i.state = 'active' and i.admission_id in (${sql.join(ids.map((id) => sql`${id}`), sql`, `)}) and i.due_date >= ${today}
@@ -81,44 +81,44 @@ function myAdmissions(studentId: string): PortalAdmission[] {
 }
 
 /** Batches the student belongs (or belonged) to. */
-function myBatchIds(studentId: string): string[] {
-  return db.select({ batchId: batchAssignments.batchId }).from(batchAssignments).where(eq(batchAssignments.studentId, studentId)).all().map((r) => r.batchId);
+async function myBatchIds(studentId: string): Promise<string[]> {
+  return (await db.select({ batchId: batchAssignments.batchId }).from(batchAssignments).where(eq(batchAssignments.studentId, studentId)).all()).map((r) => r.batchId);
 }
 
-export function myClasses(ctx: RequestContext, studentId: string, from: string, to: string) {
-  const ids = [...new Set(myBatchIds(studentId))];
+export async function myClasses(ctx: RequestContext, studentId: string, from: string, to: string) {
+  const ids = [...new Set(await myBatchIds(studentId))];
   if (ids.length === 0) return [];
   // The student has no batch permissions; scope comes from their own assignments.
   const asTeam: RequestContext = { ...ctx, accountType: 'team' };
-  return listSessions(asTeam, { from, to, status: undefined }, inArray(classSessions.batchId, ids));
+  return await listSessions(asTeam, { from, to, status: undefined }, inArray(classSessions.batchId, ids));
 }
 
-export function overview(ctx: RequestContext, studentId: string): PortalOverview {
-  const s = studentRow(studentId);
+export async function overview(ctx: RequestContext, studentId: string): Promise<PortalOverview> {
+  const s = await studentRow(studentId);
   const today = instituteToday();
-  const exams = portalExams(studentId);
-  const recent = db.get<{ n: number }>(sql`
+  const exams = await portalExams(studentId);
+  const recent = await db.get<{ n: number }>(sql`
     select count(*) as n from materials m
     where m.is_published = 1 and m.deleted_at is null and m.created_at >= ${Date.now() - 14 * 86_400_000}
       and m.course_id in (select a.course_id from admissions a where a.student_id = ${studentId} and a.status <> 'cancelled')
       and (m.batch_id is null or m.batch_id in (select ba.batch_id from batch_assignments ba where ba.student_id = ${studentId}))`);
-  const certs = db.select({ status: certificates.status }).from(certificates).where(eq(certificates.studentId, studentId)).all();
+  const certs = await db.select({ status: certificates.status }).from(certificates).where(eq(certificates.studentId, studentId)).all();
   return {
     student: { id: s.id, studentCode: s.studentCode, fullName: s.fullName, email: s.email, phone: s.phone },
-    admissions: myAdmissions(studentId),
-    upcomingClasses: myClasses(ctx, studentId, today, addDays(today, 7)).filter((c) => c.status === 'scheduled' && new Date(c.endsAt).getTime() > Date.now()).slice(0, 8),
+    admissions: await myAdmissions(studentId),
+    upcomingClasses: (await myClasses(ctx, studentId, today, addDays(today, 7))).filter((c) => c.status === 'scheduled' && new Date(c.endsAt).getTime() > Date.now()).slice(0, 8),
     openExams: exams.filter((e) => !e.blockedReason || e.inProgressAttemptId).length,
     newMaterials: Number(recent?.n ?? 0),
     certificates: { requested: certs.filter((c) => c.status !== 'issued' && c.status !== 'rejected').length, issued: certs.filter((c) => c.status === 'issued').length },
   };
 }
 
-export function fees(studentId: string): PortalFees {
-  const adm = myAdmissions(studentId);
+export async function fees(studentId: string): Promise<PortalFees> {
+  const adm = await myAdmissions(studentId);
   const ids = adm.map((a) => a.id);
   const today = instituteToday();
   const instalmentRows = ids.length
-    ? db.all<{ admissionId: string; sequence: number; kind: string; dueDate: string; amountMinor: number; paid: number }>(sql`
+    ? await db.all<{ admissionId: string; sequence: number; kind: string; dueDate: string; amountMinor: number; paid: number }>(sql`
         select i.admission_id as admissionId, i.sequence, i.kind, i.due_date as dueDate, i.amount_minor as amountMinor, ${instalmentPaidSql()} as paid
         from instalments i
         where i.state = 'active' and i.admission_id in (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})
@@ -131,30 +131,30 @@ export function fees(studentId: string): PortalFees {
     return { admissionId: i.admissionId, admissionNumber: a.admissionNumber, courseName: a.courseName, sequence: i.sequence, kind: i.kind, dueDate: i.dueDate, amountMinor: i.amountMinor, paidMinor: paid, state };
   });
   const paymentRows: PortalPayment[] = ids.length
-    ? db
+    ? (await db
         .select({ p: payments, admissionNumber: admissions.admissionNumber, courseName: courses.name })
         .from(payments)
         .innerJoin(admissions, eq(admissions.id, payments.admissionId))
         .innerJoin(courses, eq(courses.id, admissions.courseId))
         .where(and(inArray(payments.admissionId, ids), eq(payments.status, 'succeeded')))
         .orderBy(desc(payments.paymentDate), desc(payments.receiptNumber))
-        .all()
+        .all())
         .map(({ p, admissionNumber, courseName }) => ({ id: p.id, receiptNumber: p.receiptNumber, paymentDate: p.paymentDate, admissionNumber, courseName, direction: p.direction, method: p.method, amountMinor: p.amountMinor }))
     : [];
   return { admissions: adm, instalments, payments: paymentRows };
 }
 
 /** A receipt may be downloaded only by the student it was issued to. */
-export function assertOwnPayment(studentId: string, paymentId: string): void {
-  const p = db.select({ studentId: payments.studentId, status: payments.status }).from(payments).where(eq(payments.id, paymentId)).get();
+export async function assertOwnPayment(studentId: string, paymentId: string): Promise<void> {
+  const p = await db.select({ studentId: payments.studentId, status: payments.status }).from(payments).where(eq(payments.id, paymentId)).get();
   if (!p || p.studentId !== studentId) throw ApiError.notFound('Receipt');
 }
 
-export function attendance(studentId: string): PortalAttendance[] {
-  const adm = myAdmissions(studentId);
+export async function attendance(studentId: string): Promise<PortalAttendance[]> {
+  const adm = await myAdmissions(studentId);
   if (adm.length === 0) return [];
-  const counts = countsByAdmission({ admissionIds: adm.map((a) => a.id) });
-  const days = db
+  const counts = await countsByAdmission({ admissionIds: adm.map((a) => a.id) });
+  const days = await db
     .select({ admissionId: attendanceRecords.admissionId, date: attendanceSessions.date, status: attendanceRecords.status, minutesLate: attendanceRecords.minutesLate, topic: attendanceSessions.topic, remark: attendanceRecords.remark })
     .from(attendanceRecords)
     .innerJoin(attendanceSessions, eq(attendanceSessions.id, attendanceRecords.attendanceSessionId))
@@ -174,21 +174,21 @@ export function attendance(studentId: string): PortalAttendance[] {
   });
 }
 
-export function placement(studentId: string): PortalPlacement {
-  const profile = db.select().from(placementProfiles).where(eq(placementProfiles.studentId, studentId)).orderBy(desc(placementProfiles.createdAt)).get();
-  const apps = db
+export async function placement(studentId: string): Promise<PortalPlacement> {
+  const profile = await db.select().from(placementProfiles).where(eq(placementProfiles.studentId, studentId)).orderBy(desc(placementProfiles.createdAt)).get();
+  const apps = await db
     .select({ a: placementApplications, companyName: companies.name })
     .from(placementApplications)
     .innerJoin(companies, eq(companies.id, placementApplications.companyId))
     .where(eq(placementApplications.studentId, studentId))
     .orderBy(desc(placementApplications.appliedOn))
     .all();
-  const rounds = apps.length ? db.select().from(interviews).where(inArray(interviews.applicationId, apps.map((x) => x.a.id))).orderBy(asc(interviews.scheduledAt)).all() : [];
+  const rounds = apps.length ? await db.select().from(interviews).where(inArray(interviews.applicationId, apps.map((x) => x.a.id))).orderBy(asc(interviews.scheduledAt)).all() : [];
   return {
     profile: profile
       ? { id: profile.id, track: profile.track, stage: profile.stage, eligibleOn: profile.eligibleOn, resumeStatus: profile.resumeStatus, placed: apps.some((x) => x.a.outcome === 'joined') }
       : null,
-    drives: drivesForStudent(studentId),
+    drives: await drivesForStudent(studentId),
     applications: apps.map(({ a, companyName }) => ({
       id: a.id,
       companyName,

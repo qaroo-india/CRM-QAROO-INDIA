@@ -4,8 +4,11 @@
  * Why bundle instead of running `tsc`: the @ims/shared workspace is consumed as
  * TypeScript source, which Node cannot execute. esbuild inlines it (and the
  * server's own modules) while leaving real npm dependencies external -- they
- * are installed in production as usual, and better-sqlite3 ships a native
- * binary that must never be bundled.
+ * are installed in production as usual, and libSQL and Argon2 load native
+ * binaries that must never be bundled.
+ *
+ * dist/vercel.js is the Vercel Function (see src/vercel.ts and vercel.json);
+ * the others are for a long-running server and the database CLI.
  *
  * Type checking is NOT done here; run `npm run typecheck` (CI does both).
  */
@@ -23,6 +26,7 @@ rmSync(new URL('../dist', import.meta.url), { recursive: true, force: true });
 const result = await build({
   entryPoints: {
     server: 'src/server.ts',
+    vercel: 'src/vercel.ts',
     migrate: 'src/db/migrate.ts',
     seed: 'src/db/seed.ts',
     backup: 'src/db/backup.ts',

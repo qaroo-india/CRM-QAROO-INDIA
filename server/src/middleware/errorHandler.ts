@@ -18,6 +18,7 @@ import { ApiError } from '../utils/ApiError';
 
 interface SqliteLikeError {
   code: string;
+  extendedCode?: string;
   message: string;
 }
 
@@ -37,6 +38,26 @@ function findSqliteError(error: unknown): SqliteLikeError | null {
     current = (current as { cause?: unknown }).cause;
   }
   return null;
+}
+
+const CONSTRAINT_KINDS: [RegExp, string][] = [
+  [/UNIQUE constraint failed/i, 'SQLITE_CONSTRAINT_UNIQUE'],
+  [/FOREIGN KEY constraint failed/i, 'SQLITE_CONSTRAINT_FOREIGNKEY'],
+  [/CHECK constraint failed/i, 'SQLITE_CONSTRAINT_CHECK'],
+  [/NOT NULL constraint failed/i, 'SQLITE_CONSTRAINT_NOTNULL'],
+];
+
+/**
+ * The precise SQLite code. A local libSQL database reports it as
+ * `extendedCode`; a hosted (Turso) one only sends the base SQLITE_CONSTRAINT,
+ * so the kind of constraint is read from SQLite's standard message.
+ */
+function sqliteCode(error: SqliteLikeError): string {
+  if (error.extendedCode?.startsWith('SQLITE_')) return error.extendedCode;
+  if (error.code === 'SQLITE_CONSTRAINT') {
+    for (const [pattern, code] of CONSTRAINT_KINDS) if (pattern.test(error.message)) return code;
+  }
+  return error.code;
 }
 
 function zodFields(error: ZodError): ApiFieldError[] {
@@ -79,7 +100,7 @@ export function toApiError(error: unknown): ApiError | null {
 
   const sqliteError = findSqliteError(error);
   if (sqliteError) {
-    switch (sqliteError.code) {
+    switch (sqliteCode(sqliteError)) {
       case 'SQLITE_CONSTRAINT_UNIQUE':
       case 'SQLITE_CONSTRAINT_PRIMARYKEY':
         return ApiError.conflict('A record with the same unique value already exists');
@@ -94,9 +115,11 @@ export function toApiError(error: unknown): ApiError | null {
           'CONSTRAINT_VIOLATION',
           'The data breaks a database rule and was not saved',
         );
-      case 'SQLITE_BUSY':
-        return new ApiError(503, 'DATABASE_BUSY', 'The database is busy, please retry');
       default:
+        // SQLITE_BUSY and its extended forms (SQLITE_BUSY_SNAPSHOT, ...).
+        if (sqliteError.code === 'SQLITE_BUSY') {
+          return new ApiError(503, 'DATABASE_BUSY', 'The database is busy, please retry');
+        }
         return null;
     }
   }

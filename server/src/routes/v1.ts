@@ -3,6 +3,7 @@
  *
  * Order is the security model:
  *   1. /health           public, read-only
+ *      /cron             Vercel Cron only (shared secret, see cron.routes)
  *   2. CSRF check        every state-changing request from here on
  *   3. /auth             login/refresh/logout handle their own session logic
  *   4. authenticate      everything below requires a valid session
@@ -20,6 +21,7 @@ import { auditRouter } from '../modules/audit/audit.routes';
 import { authRouter } from '../modules/auth/auth.routes';
 import { admissionBatchRouter, assignmentsRouter, batchesRouter, trainersRouter } from '../modules/batches/batches.routes';
 import { coursesRouter } from '../modules/courses/courses.routes';
+import { cronRouter } from '../modules/cron/cron.routes';
 import { expensesRouter } from '../modules/expenses/expenses.routes';
 import {
   adjustmentsRouter,
@@ -48,6 +50,7 @@ import { drivesRouter, inventoryRouter, leaveRouter, tasksRouter } from '../modu
 export const v1Router = Router();
 
 v1Router.use('/health', healthRouter);
+v1Router.use('/cron', cronRouter);
 // Public: confirm a certificate reference (read-only, rate limited).
 v1Router.use('/verify', verifyRouter);
 

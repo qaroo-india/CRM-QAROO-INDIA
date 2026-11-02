@@ -72,7 +72,7 @@ describe('forgot password', () => {
     const token = tokenFrom(sent[0]!);
 
     // Only a hash is stored.
-    const stored = db.select().from(passwordTokens).where(eq(passwordTokens.userId, staff.user.id)).all();
+    const stored = await db.select().from(passwordTokens).where(eq(passwordTokens.userId, staff.user.id)).all();
     expect(stored).toHaveLength(1);
     expect(stored[0]!.tokenHash).not.toContain(token);
 
@@ -95,7 +95,7 @@ describe('forgot password', () => {
     const staff = await clientWith(app, { permissions: ['leads:read'] });
     await publicPost('/auth/forgot-password', { email: staff.user.email });
     const token = tokenFrom(sent[0]!);
-    db.update(passwordTokens).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(passwordTokens.userId, staff.user.id)).run();
+    await db.update(passwordTokens).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(passwordTokens.userId, staff.user.id)).run();
     expect((await publicPost('/auth/reset-password', { token, newPassword: 'Brand-New-Pass-77' })).status).toBe(422);
 
     sent.length = 0;
@@ -113,7 +113,7 @@ describe('student portal logins', () => {
     expect(sent[0]!.text).toContain('activate=1');
 
     // Not usable until activated.
-    const pending = db.select().from(users).where(eq(users.email, 'meera.activate@example.com')).get()!;
+    const pending = (await db.select().from(users).where(eq(users.email, 'meera.activate@example.com')).get())!;
     expect(pending).toMatchObject({ accountType: 'student', isActive: false, permissions: [] });
     expect((await login('meera.activate@example.com', 'Student-Pass-2026')).res.status).toBe(401);
 

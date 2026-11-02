@@ -99,8 +99,8 @@ function toDto(row: { student: Student; admissionCount: number; latestCourseName
   };
 }
 
-export function getStudent(id: string): StudentDto {
-  const row = db.select(studentSelect).from(students).where(eq(students.id, id)).get();
+export async function getStudent(id: string): Promise<StudentDto> {
+  const row = await db.select(studentSelect).from(students).where(eq(students.id, id)).get();
   if (!row) throw ApiError.notFound('Student');
   return toDto(row);
 }
@@ -114,7 +114,7 @@ const SORTS: Record<string, SQLWrapper> = {
   outstanding: studentOutstanding,
 };
 
-export function listStudents(query: ListQuery) {
+export async function listStudents(query: ListQuery) {
   const conditions: SQL[] = [];
   if (query.q) {
     const digits = query.q.replace(/\D/g, '');
@@ -130,10 +130,10 @@ export function listStudents(query: ListQuery) {
   }
 
   const where = conditions.length ? and(...conditions) : undefined;
-  const total = db.select({ n: count() }).from(students).where(where).get()?.n ?? 0;
+  const total = (await db.select({ n: count() }).from(students).where(where).get())?.n ?? 0;
   const sortColumn = SORTS[query.sort ?? 'createdAt'] ?? students.createdAt;
   const { limit, offset } = pageWindow(query.page, query.limit);
-  const rows = db
+  const rows = await db
     .select(studentSelect)
     .from(students)
     .where(where)
@@ -171,25 +171,25 @@ const ACTIVITY_TITLES: Record<string, string> = {
   conversion: 'Enquiry converted to admission',
 };
 
-function timelineFor(studentId: string, admissionIds: string[], leadIds: string[]): TimelineEvent[] {
+async function timelineFor(studentId: string, admissionIds: string[], leadIds: string[]): Promise<TimelineEvent[]> {
   // Every record that belongs to this student, so its audit entries can be shown.
   const ids = new Set<string>([studentId, ...admissionIds, ...leadIds]);
   if (admissionIds.length) {
     for (const table of [payments, loans, batchAssignments, placementProfiles] as const) {
-      db.select({ id: table.id }).from(table).where(inArray(table.admissionId, admissionIds)).all().forEach((r) => ids.add(r.id));
+      (await db.select({ id: table.id }).from(table).where(inArray(table.admissionId, admissionIds)).all()).forEach((r) => ids.add(r.id));
     }
   }
-  db.select({ id: placementApplications.id }).from(placementApplications).where(eq(placementApplications.studentId, studentId)).all().forEach((r) => ids.add(r.id));
-  db.select({ id: documents.id }).from(documents).where(and(eq(documents.ownerType, 'student'), eq(documents.ownerId, studentId))).all().forEach((r) => ids.add(r.id));
+  (await db.select({ id: placementApplications.id }).from(placementApplications).where(eq(placementApplications.studentId, studentId)).all()).forEach((r) => ids.add(r.id));
+  (await db.select({ id: documents.id }).from(documents).where(and(eq(documents.ownerType, 'student'), eq(documents.ownerId, studentId))).all()).forEach((r) => ids.add(r.id));
 
-  const audit = db
+  const audit = (await db
     .select({ log: auditLogs, actorName: actor.name })
     .from(auditLogs)
     .leftJoin(actor, eq(actor.id, auditLogs.actorId))
     .where(inArray(auditLogs.entityId, [...ids]))
     .orderBy(desc(auditLogs.occurredAt))
     .limit(150)
-    .all()
+    .all())
     .map<TimelineEvent>(({ log, actorName }) => ({
       id: log.id,
       at: log.occurredAt.toISOString(),
@@ -201,14 +201,14 @@ function timelineFor(studentId: string, admissionIds: string[], leadIds: string[
     }));
 
   const activities = leadIds.length
-    ? db
+    ? (await db
         .select({ activity: leadActivities, actorName: actor.name })
         .from(leadActivities)
         .leftJoin(actor, eq(actor.id, leadActivities.actorId))
         .where(and(inArray(leadActivities.leadId, leadIds), sql`${leadActivities.type} <> 'status_change'`))
         .orderBy(desc(leadActivities.occurredAt))
         .limit(100)
-        .all()
+        .all())
         .map<TimelineEvent>(({ activity, actorName }) => ({
           id: activity.id,
           at: activity.occurredAt.toISOString(),
@@ -223,23 +223,23 @@ function timelineFor(studentId: string, admissionIds: string[], leadIds: string[
   return [...audit, ...activities].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0)).slice(0, 200);
 }
 
-export function getStudentProfile(id: string): StudentProfile {
-  const student = getStudent(id);
-  const admissionRows = admissionQuery().where(eq(admissions.studentId, id)).orderBy(desc(admissions.admissionDate)).all();
+export async function getStudentProfile(id: string): Promise<StudentProfile> {
+  const student = await getStudent(id);
+  const admissionRows = await admissionQuery().where(eq(admissions.studentId, id)).orderBy(desc(admissions.admissionDate)).all();
   const admissionDtos = admissionRows.map(toAdmissionDto);
 
   const leadIdSet = new Set<string>(
-    db.select({ id: leads.id }).from(leads).where(eq(leads.studentId, id)).all().map((l) => l.id),
+    (await db.select({ id: leads.id }).from(leads).where(eq(leads.studentId, id)).all()).map((l) => l.id),
   );
   admissionDtos.forEach((a) => a.leadId && leadIdSet.add(a.leadId));
   const leadIds = [...leadIdSet];
-  const linkedLeads = leadsByIds(leadIds);
+  const linkedLeads = await leadsByIds(leadIds);
 
   return {
     student,
     admissions: admissionDtos,
     leads: linkedLeads,
-    timeline: timelineFor(id, admissionDtos.map((a) => a.id), leadIds),
+    timeline: await timelineFor(id, admissionDtos.map((a) => a.id), leadIds),
   };
 }
 
@@ -272,11 +272,11 @@ function columnsFrom(input: StudentInput) {
   };
 }
 
-export function createStudent(ctx: RequestContext, raw: unknown): StudentDto {
+export async function createStudent(ctx: RequestContext, raw: unknown): Promise<StudentDto> {
   const body = (raw ?? {}) as { allowDuplicate?: unknown };
   const input = studentSchema.parse(raw);
   if (body.allowDuplicate !== true) {
-    const matches = findDuplicateStudents(input.phone, input.email);
+    const matches = await findDuplicateStudents(input.phone, input.email);
     if (matches.length) {
       throw ApiError.conflict(
         'A student with this phone or email already exists. Open the existing profile, or confirm this is a different person.',
@@ -285,25 +285,25 @@ export function createStudent(ctx: RequestContext, raw: unknown): StudentDto {
       );
     }
   }
-  const id = db.transaction((tx) => {
-    const student = tx
+  const id = await db.transaction(async (tx) => {
+    const student = await tx
       .insert(students)
-      .values({ ...columnsFrom(input), studentCode: nextCode(tx, getSettings().studentCodePrefix, instituteToday()), createdById: ctx.actorId })
+      .values({ ...columnsFrom(input), studentCode: await nextCode(tx, getSettings().studentCodePrefix, instituteToday()), createdById: ctx.actorId })
       .returning()
       .get();
-    recordAudit(tx, ctx, { action: 'create', entityType: 'student', entityId: student.id, summary: `Registered student ${student.studentCode} ${student.fullName}`, after: student });
+    await recordAudit(tx, ctx, { action: 'create', entityType: 'student', entityId: student.id, summary: `Registered student ${student.studentCode} ${student.fullName}`, after: student });
     return student.id;
   });
-  return getStudent(id);
+  return await getStudent(id);
 }
 
-export function updateStudent(ctx: RequestContext, id: string, raw: unknown): StudentDto {
+export async function updateStudent(ctx: RequestContext, id: string, raw: unknown): Promise<StudentDto> {
   const input = studentSchema.parse(raw);
-  const existing = db.select().from(students).where(eq(students.id, id)).get();
+  const existing = await db.select().from(students).where(eq(students.id, id)).get();
   if (!existing) throw ApiError.notFound('Student');
-  db.transaction((tx) => {
-    const updated = tx.update(students).set(columnsFrom(input)).where(eq(students.id, id)).returning().get();
-    recordAudit(tx, ctx, {
+  await db.transaction(async (tx) => {
+    const updated = await tx.update(students).set(columnsFrom(input)).where(eq(students.id, id)).returning().get();
+    await recordAudit(tx, ctx, {
       action: 'update',
       entityType: 'student',
       entityId: id,
@@ -311,5 +311,5 @@ export function updateStudent(ctx: RequestContext, id: string, raw: unknown): St
       ...diff(existing as unknown as Record<string, unknown>, updated as unknown as Record<string, unknown>),
     });
   });
-  return getStudent(id);
+  return await getStudent(id);
 }

@@ -40,27 +40,27 @@ export interface NotifyInput {
 }
 
 /** Active users holding a permission (the owner wildcard included). */
-export function usersWithPermission(permission: Permission, database: DbLike = db): string[] {
-  return database
+export async function usersWithPermission(permission: Permission, database: DbLike = db): Promise<string[]> {
+  return (await database
     .select({ id: users.id, permissions: users.permissions })
     .from(users)
     .where(eq(users.isActive, true))
-    .all()
+    .all())
     .filter((u) => hasPermission(u.permissions, permission))
     .map((u) => u.id);
 }
 
-export function ownerIds(database: DbLike = db): string[] {
-  return database.select({ id: users.id }).from(users).where(and(eq(users.isActive, true), eq(users.role, 'owner'))).all().map((u) => u.id);
+export async function ownerIds(database: DbLike = db): Promise<string[]> {
+  return (await database.select({ id: users.id }).from(users).where(and(eq(users.isActive, true), eq(users.role, 'owner'))).all()).map((u) => u.id);
 }
 
 /** Insert for each user; an existing (user, dedupeKey) is left alone. Returns how many were new. */
-export function notifyUsers(userIds: readonly string[], input: NotifyInput, database: DbLike = db): number {
+export async function notifyUsers(userIds: readonly string[], input: NotifyInput, database: DbLike = db): Promise<number> {
   const unique = [...new Set(userIds)];
   if (unique.length === 0) return 0;
   let created = 0;
   for (const userId of unique) {
-    const result = database
+    const result = await database
       .insert(notifications)
       .values({
         userId,
@@ -75,19 +75,19 @@ export function notifyUsers(userIds: readonly string[], input: NotifyInput, data
       })
       .onConflictDoNothing({ target: [notifications.userId, notifications.dedupeKey] })
       .run();
-    created += result.changes;
+    created += result.rowsAffected;
   }
   return created;
 }
 
-export function notifyPermission(permission: Permission, input: NotifyInput, options: { except?: string } = {}): number {
-  return notifyUsers(usersWithPermission(permission).filter((id) => id !== options.except), input);
+export async function notifyPermission(permission: Permission, input: NotifyInput, options: { except?: string } = {}): Promise<number> {
+  return await notifyUsers((await usersWithPermission(permission)).filter((id) => id !== options.except), input);
 }
 
 /** For post-commit callers: a notification must never break the action that caused it. */
-export function safely(label: string, fn: () => void): void {
+export async function safely(label: string, fn: () => unknown): Promise<void> {
   try {
-    fn();
+    await fn();
   } catch (error) {
     logger.warn({ err: error, label }, 'Notification failed (the original action succeeded)');
   }
@@ -112,32 +112,32 @@ function toDto(n: typeof notifications.$inferSelect): NotificationDto {
   };
 }
 
-export function listNotifications(userId: string, q: z.output<typeof notificationListQuerySchema>) {
+export async function listNotifications(userId: string, q: z.output<typeof notificationListQuerySchema>) {
   const conditions: SQL[] = [eq(notifications.userId, userId)];
   if (q.unread === 'true') conditions.push(isNull(notifications.readAt));
   if (q.unread === 'false') conditions.push(sql`${notifications.readAt} is not null`);
   if (q.type) conditions.push(eq(notifications.type, q.type));
   const where = and(...conditions);
-  const total = db.select({ n: count() }).from(notifications).where(where).get()?.n ?? 0;
+  const total = (await db.select({ n: count() }).from(notifications).where(where).get())?.n ?? 0;
   const { limit, offset } = pageWindow(q.page, q.limit);
-  const rows = db.select().from(notifications).where(where).orderBy(desc(notifications.createdAt), desc(notifications.id)).limit(limit).offset(offset).all();
+  const rows = await db.select().from(notifications).where(where).orderBy(desc(notifications.createdAt), desc(notifications.id)).limit(limit).offset(offset).all();
   return paginated(rows.map(toDto), total, q.page, q.limit);
 }
 
-export function unreadCount(userId: string): number {
-  return db.select({ n: count() }).from(notifications).where(and(eq(notifications.userId, userId), isNull(notifications.readAt))).get()?.n ?? 0;
+export async function unreadCount(userId: string): Promise<number> {
+  return (await db.select({ n: count() }).from(notifications).where(and(eq(notifications.userId, userId), isNull(notifications.readAt))).get())?.n ?? 0;
 }
 
-export function markRead(userId: string, id: string): NotificationDto {
-  const row = db.select().from(notifications).where(and(eq(notifications.id, id), eq(notifications.userId, userId))).get();
+export async function markRead(userId: string, id: string): Promise<NotificationDto> {
+  const row = await db.select().from(notifications).where(and(eq(notifications.id, id), eq(notifications.userId, userId))).get();
   // Someone else's notification is reported as missing, not forbidden.
   if (!row) throw ApiError.notFound('Notification');
   if (row.readAt) return toDto(row);
-  return toDto(db.update(notifications).set({ readAt: new Date() }).where(eq(notifications.id, id)).returning().get());
+  return toDto(await db.update(notifications).set({ readAt: new Date() }).where(eq(notifications.id, id)).returning().get());
 }
 
-export function markAllRead(userId: string): number {
-  return db.update(notifications).set({ readAt: new Date() }).where(and(eq(notifications.userId, userId), isNull(notifications.readAt))).run().changes;
+export async function markAllRead(userId: string): Promise<number> {
+  return (await db.update(notifications).set({ readAt: new Date() }).where(and(eq(notifications.userId, userId), isNull(notifications.readAt))).run()).rowsAffected;
 }
 
 /* ------------------------------------------------------------------ *
@@ -146,7 +146,7 @@ export function markAllRead(userId: string): number {
 
 const OPEN_LEAD = sql.raw(`l.status not in ('converted', 'not_interested', 'lost', 'unreachable')`);
 
-export function runNotificationSweep(now: Date = new Date()): { created: number } {
+export async function runNotificationSweep(now: Date = new Date()): Promise<{ created: number }> {
   const settings = getSettings();
   const today = instituteToday(now);
   const money = (minor: number) => formatMoney(minor, { currency: settings.currency, locale: settings.locale, compactDecimals: true });
@@ -155,12 +155,12 @@ export function runNotificationSweep(now: Date = new Date()): { created: number 
   // Instalments falling due soon, and already overdue.
   const dueBy = addDays(today, Math.max(0, settings.dueReminderDays));
   const unpaid = sql`max(0, i.amount_minor - ${instalmentPaidSql()})`;
-  const due = db.get<{ n: number; amount: number }>(sql`
+  const due = await db.get<{ n: number; amount: number }>(sql`
     select count(*) as n, coalesce(sum(${unpaid}), 0) as amount
     from instalments i join admissions on admissions.id = i.admission_id
     where i.state = 'active' and admissions.status <> 'cancelled' and i.due_date between ${today} and ${dueBy} and ${unpaid} > 0`);
   if (due && Number(due.n) > 0) {
-    created += notifyUsers(usersWithPermission('payments:read'), {
+    created += await notifyUsers(await usersWithPermission('payments:read'), {
       type: 'instalment_due',
       title: `${due.n} instalment${Number(due.n) === 1 ? '' : 's'} due by ${dueBy}`,
       body: `${money(Number(due.amount))} to collect in the next ${settings.dueReminderDays} day(s).`,
@@ -168,12 +168,12 @@ export function runNotificationSweep(now: Date = new Date()): { created: number 
       dedupeKey: `instalment_due:${today}`,
     });
   }
-  const overdue = db.get<{ n: number; amount: number; students: number }>(sql`
+  const overdue = await db.get<{ n: number; amount: number; students: number }>(sql`
     select count(*) as n, coalesce(sum(${unpaid}), 0) as amount, count(distinct i.admission_id) as students
     from instalments i join admissions on admissions.id = i.admission_id
     where i.state = 'active' and admissions.status <> 'cancelled' and i.due_date < ${today} and ${unpaid} > 0`);
   if (overdue && Number(overdue.n) > 0) {
-    created += notifyUsers(usersWithPermission('payments:read'), {
+    created += await notifyUsers(await usersWithPermission('payments:read'), {
       type: 'instalment_overdue',
       severity: 'warning',
       title: `${overdue.n} overdue instalment${Number(overdue.n) === 1 ? '' : 's'} (${overdue.students} admission${Number(overdue.students) === 1 ? '' : 's'})`,
@@ -184,32 +184,32 @@ export function runNotificationSweep(now: Date = new Date()): { created: number 
   }
 
   // Follow-ups: each counsellor hears about their own leads; unassigned ones go to owners.
-  const followUps = db.all<{ counsellorId: string | null; dueToday: number; missed: number }>(sql`
+  const followUps = await db.all<{ counsellorId: string | null; dueToday: number; missed: number }>(sql`
     select l.counsellor_id as counsellorId,
            sum(case when l.follow_up_date = ${today} then 1 else 0 end) as dueToday,
            sum(case when l.follow_up_date < ${today} then 1 else 0 end) as missed
     from leads l where ${OPEN_LEAD} and l.follow_up_date is not null and l.follow_up_date <= ${today}
     group by l.counsellor_id`);
-  const activeIds = new Set(db.select({ id: users.id }).from(users).where(eq(users.isActive, true)).all().map((u) => u.id));
+  const activeIds = new Set((await db.select({ id: users.id }).from(users).where(eq(users.isActive, true)).all()).map((u) => u.id));
   for (const row of followUps) {
-    const recipients = row.counsellorId && activeIds.has(row.counsellorId) ? [row.counsellorId] : ownerIds();
+    const recipients = row.counsellorId && activeIds.has(row.counsellorId) ? [row.counsellorId] : await ownerIds();
     const scope = row.counsellorId ? '' : ' (unassigned leads)';
     if (Number(row.dueToday) > 0) {
-      created += notifyUsers(recipients, { type: 'follow_up_due', title: `${row.dueToday} follow-up${Number(row.dueToday) === 1 ? '' : 's'} due today${scope}`, link: '/leads?followUp=today', dedupeKey: `follow_up_due:${today}:${row.counsellorId ?? 'none'}` });
+      created += await notifyUsers(recipients, { type: 'follow_up_due', title: `${row.dueToday} follow-up${Number(row.dueToday) === 1 ? '' : 's'} due today${scope}`, link: '/leads?followUp=today', dedupeKey: `follow_up_due:${today}:${row.counsellorId ?? 'none'}` });
     }
     if (Number(row.missed) > 0) {
-      created += notifyUsers(recipients, { type: 'follow_up_missed', severity: 'warning', title: `${row.missed} missed follow-up${Number(row.missed) === 1 ? '' : 's'}${scope}`, body: 'These leads had a follow-up date in the past and are still open.', link: '/leads?followUp=overdue', dedupeKey: `follow_up_missed:${today}:${row.counsellorId ?? 'none'}` });
+      created += await notifyUsers(recipients, { type: 'follow_up_missed', severity: 'warning', title: `${row.missed} missed follow-up${Number(row.missed) === 1 ? '' : 's'}${scope}`, body: 'These leads had a follow-up date in the past and are still open.', link: '/leads?followUp=overdue', dedupeKey: `follow_up_missed:${today}:${row.counsellorId ?? 'none'}` });
     }
   }
 
   // Students waiting too long without a batch.
   const waitingSince = addDays(today, -Math.max(0, settings.unassignedAlertDays));
-  const waiting = db.get<{ n: number }>(sql`
+  const waiting = await db.get<{ n: number }>(sql`
     select count(*) as n from admissions
     where admissions.status in ('pending_payment', 'active') and admissions.admission_date <= ${waitingSince}
       and not exists (select 1 from batch_assignments ba where ba.admission_id = admissions.id and ba.status = 'active')`);
   if (waiting && Number(waiting.n) > 0) {
-    created += notifyUsers(usersWithPermission('batches:assign'), {
+    created += await notifyUsers(await usersWithPermission('batches:assign'), {
       type: 'unassigned_student',
       severity: 'warning',
       title: `${waiting.n} student${Number(waiting.n) === 1 ? '' : 's'} waiting ${settings.unassignedAlertDays}+ days for a batch`,
@@ -219,14 +219,14 @@ export function runNotificationSweep(now: Date = new Date()): { created: number 
   }
 
   // Batches at or near capacity -- once per threshold per batch.
-  const full = db.all<{ id: string; name: string; capacity: number; enrolled: number }>(sql`
+  const full = await db.all<{ id: string; name: string; capacity: number; enrolled: number }>(sql`
     select b.id, b.name, b.capacity, (select count(*) from batch_assignments ba where ba.batch_id = b.id and ba.status = 'active') as enrolled
     from batches b where b.status in ('planned', 'enrolling', 'running')`);
   for (const b of full) {
     const ratio = Number(b.enrolled) / Number(b.capacity);
     if (ratio < 0.9) continue;
     const isFull = ratio >= 1;
-    created += notifyUsers(usersWithPermission('batches:read'), {
+    created += await notifyUsers(await usersWithPermission('batches:read'), {
       type: 'batch_capacity',
       severity: isFull ? 'warning' : 'info',
       title: isFull ? `${b.name} is full (${b.enrolled}/${b.capacity})` : `${b.name} is ${Math.round(ratio * 100)}% full`,
@@ -238,7 +238,7 @@ export function runNotificationSweep(now: Date = new Date()): { created: number 
   }
 
   // Interviews in the next 24 hours.
-  const soon = db.all<{ id: string; at: number; roundName: string; studentName: string; companyName: string; profileId: string; track: string }>(sql`
+  const soon = await db.all<{ id: string; at: number; roundName: string; studentName: string; companyName: string; profileId: string; track: string }>(sql`
     select i.id, i.scheduled_at as at, i.round_name as roundName, s.full_name as studentName, c.name as companyName, pp.id as profileId, pp.track as track
     from interviews i
     join placement_applications pa on pa.id = i.application_id
@@ -248,7 +248,7 @@ export function runNotificationSweep(now: Date = new Date()): { created: number 
     where i.result = 'scheduled' and i.scheduled_at >= ${now.getTime()} and i.scheduled_at < ${now.getTime() + 86_400_000}`);
   for (const iv of soon) {
     const when = new Intl.DateTimeFormat(settings.locale, { timeZone: settings.timezone, dateStyle: 'medium', timeStyle: 'short' }).format(new Date(Number(iv.at)));
-    created += notifyUsers(usersWithPermission('placements:read'), {
+    created += await notifyUsers(await usersWithPermission('placements:read'), {
       type: 'interview_upcoming',
       title: `${iv.studentName}: ${iv.roundName} with ${iv.companyName}`,
       body: when,
@@ -260,7 +260,7 @@ export function runNotificationSweep(now: Date = new Date()): { created: number 
   }
 
   // Open tasks due today or overdue: one reminder per person per day.
-  const tasksDue = db.all<{ userId: string; dueToday: number; overdue: number }>(sql`
+  const tasksDue = await db.all<{ userId: string; dueToday: number; overdue: number }>(sql`
     select t.assigned_to_id as userId,
            sum(case when t.due_date = ${today} then 1 else 0 end) as dueToday,
            sum(case when t.due_date < ${today} then 1 else 0 end) as overdue
@@ -273,7 +273,7 @@ export function runNotificationSweep(now: Date = new Date()): { created: number 
       Number(row.dueToday) > 0 ? `${row.dueToday} due today` : null,
       Number(row.overdue) > 0 ? `${row.overdue} overdue` : null,
     ].filter(Boolean);
-    created += notifyUsers([row.userId], {
+    created += await notifyUsers([row.userId], {
       type: 'task_due',
       severity: Number(row.overdue) > 0 ? 'warning' : 'info',
       title: `Tasks: ${parts.join(', ')}`,

@@ -152,14 +152,14 @@ describe('period boundaries', () => {
 });
 
 describe('institute time zone', () => {
-  it('"this month" follows the clock in Asia/Kolkata, not UTC', () => {
+  it('"this month" follows the clock in Asia/Kolkata, not UTC', async () => {
     // 18:00 UTC on 31 Mar is 23:30 IST -- still March.
-    const late = buildReport({ period: 'this_month' }, { includeFinance: true, now: new Date('2026-03-31T18:00:00Z') });
+    const late = await buildReport({ period: 'this_month' }, { includeFinance: true, now: new Date('2026-03-31T18:00:00Z') });
     expect(late.range).toEqual({ from: '2026-03-01', to: '2026-03-31' });
     expect(late.summary.finance!.collectedMinor.current).toBe(3_000_000);
 
     // 19:00 UTC on 31 Mar is 00:30 IST on 1 Apr -- a new month has begun.
-    const early = buildReport({ period: 'this_month' }, { includeFinance: true, now: new Date('2026-03-31T19:00:00Z') });
+    const early = await buildReport({ period: 'this_month' }, { includeFinance: true, now: new Date('2026-03-31T19:00:00Z') });
     expect(early.range).toEqual({ from: '2026-04-01', to: '2026-04-01' });
     expect(early.summary.finance!.collectedMinor.current).toBe(500_000);
     expect(early.asOf).toBe('2026-04-01');

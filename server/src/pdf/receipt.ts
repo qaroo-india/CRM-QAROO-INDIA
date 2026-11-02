@@ -102,5 +102,5 @@ export async function renderReceiptPdf(receipt: ReceiptDto, generatedAt: Date, t
 
   const stamp = new Intl.DateTimeFormat(institute.locale, { timeZone, dateStyle: 'medium', timeStyle: 'short' }).format(generatedAt);
   stampFooters(doc, `Computer-generated ${isRefund ? 'voucher' : 'receipt'}; no signature required. Generated ${stamp}.`);
-  return toBuffer(doc);
+  return await toBuffer(doc);
 }

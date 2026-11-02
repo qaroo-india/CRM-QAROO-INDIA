@@ -12,22 +12,22 @@ import { ApiError } from './ApiError';
 import type { RequestContext } from './context';
 
 /** null = unrestricted (team); otherwise the batches this faculty member teaches. */
-export function facultyBatchIds(ctx: RequestContext): string[] | null {
+export async function facultyBatchIds(ctx: RequestContext): Promise<string[] | null> {
   if (ctx.accountType !== 'faculty') return null;
   if (!ctx.trainerId) return [];
-  return db.select({ id: batches.id }).from(batches).where(eq(batches.trainerId, ctx.trainerId)).all().map((b) => b.id);
+  return (await db.select({ id: batches.id }).from(batches).where(eq(batches.trainerId, ctx.trainerId)).all()).map((b) => b.id);
 }
 
 /** A WHERE fragment limiting `column` (a batch id column) to the caller's scope, or undefined. */
-export function batchScope(ctx: RequestContext, column: AnyColumn): SQL | undefined {
-  const ids = facultyBatchIds(ctx);
+export async function batchScope(ctx: RequestContext, column: AnyColumn): Promise<SQL | undefined> {
+  const ids = await facultyBatchIds(ctx);
   if (ids === null) return undefined;
   return ids.length ? inArray(column, ids) : sql`0`;
 }
 
 /** Throw "not found" when a faculty member reaches for a batch that is not theirs. */
-export function assertBatchInScope(ctx: RequestContext, batchId: string | null | undefined, what = 'Batch'): void {
-  const ids = facultyBatchIds(ctx);
+export async function assertBatchInScope(ctx: RequestContext, batchId: string | null | undefined, what = 'Batch'): Promise<void> {
+  const ids = await facultyBatchIds(ctx);
   if (ids === null) return;
   if (!batchId || !ids.includes(batchId)) throw ApiError.notFound(what);
 }

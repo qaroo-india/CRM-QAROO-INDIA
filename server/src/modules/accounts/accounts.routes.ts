@@ -34,8 +34,8 @@ portalAccessRouter.post('/trainers/:id', requirePermission('portal:manage'), asy
   created(res, await grantFacultyLogin(contextFrom(req), paramId(req), req.body));
 });
 
-portalAccessRouter.post('/:userId/revoke', requirePermission('portal:manage'), (req, res) => {
-  revokePortalLogin(contextFrom(req), paramId(req, 'userId'));
+portalAccessRouter.post('/:userId/revoke', requirePermission('portal:manage'), async (req, res) => {
+  await revokePortalLogin(contextFrom(req), paramId(req, 'userId'));
   ok(res, { revoked: true });
 });
 
@@ -48,27 +48,27 @@ const uploadPhoto = multer({ storage: multer.memoryStorage(), limits: { fileSize
 
 export const photoRouter = Router();
 
-photoRouter.get('/:id/photo', (req, res) => {
-  const user = db.select({ photoKey: users.photoKey, photoMime: users.photoMime, name: users.name }).from(users).where(eq(users.id, paramId(req))).get();
-  const buffer = user?.photoKey ? readStoredFile(user.photoKey) : null;
+photoRouter.get('/:id/photo', async (req, res) => {
+  const user = await db.select({ photoKey: users.photoKey, photoMime: users.photoMime, name: users.name }).from(users).where(eq(users.id, paramId(req))).get();
+  const buffer = user?.photoKey ? await readStoredFile(user.photoKey) : null;
   if (!user || !buffer) throw ApiError.notFound('Photo');
   res.setHeader('Content-Security-Policy', "default-src 'none'");
   sendDownload(res, { buffer, fileName: `${user.name.replace(/[^A-Za-z0-9]+/g, '-')}.${(user.photoMime ?? 'image/png').split('/')[1]}`, mimeType: user.photoMime ?? 'image/png' }, 'inline');
 });
 
-photoRouter.post('/:id/photo', uploadPhoto, (req, res) => {
+photoRouter.post('/:id/photo', uploadPhoto, async (req, res) => {
   const ctx = contextFrom(req);
   const id = paramId(req);
   if (id !== ctx.actorId && !hasPermission(ctx.permissions, 'users:write')) throw ApiError.forbidden('You can only change your own photo.');
-  const target = db.select().from(users).where(eq(users.id, id)).get();
+  const target = await db.select().from(users).where(eq(users.id, id)).get();
   if (!target) throw ApiError.notFound('User');
   const { ext, mime } = checkFile(req.file);
   if (!PHOTO_TYPES.has(ext)) throw ApiError.validation([{ path: 'file', message: 'Use a PNG, JPG or WEBP image' }]);
   const key = newKey('photos', ext);
-  saveFile(key, req.file!.buffer);
-  db.transaction((tx) => {
-    tx.update(users).set({ photoKey: key, photoMime: mime }).where(eq(users.id, id)).run();
-    recordAudit(tx, ctx, { action: 'update', entityType: 'user', entityId: id, summary: `Updated the profile photo of ${target.name}` });
+  await saveFile(key, req.file!.buffer);
+  await db.transaction(async (tx) => {
+    await tx.update(users).set({ photoKey: key, photoMime: mime }).where(eq(users.id, id)).run();
+    await recordAudit(tx, ctx, { action: 'update', entityType: 'user', entityId: id, summary: `Updated the profile photo of ${target.name}` });
   });
   ok(res, { hasPhoto: true });
 });

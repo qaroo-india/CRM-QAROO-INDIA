@@ -51,6 +51,6 @@ importRouter.post('/:entity/preview', requirePermission('data:import'), uploadSi
   ok(res, await previewImport(contextFrom(req), entityFrom(req), req.file));
 });
 
-importRouter.post('/:entity/commit', requirePermission('data:import'), (req, res) => {
-  created(res, commitImport(contextFrom(req), entityFrom(req), req.body));
+importRouter.post('/:entity/commit', requirePermission('data:import'), async (req, res) => {
+  created(res, await commitImport(contextFrom(req), entityFrom(req), req.body));
 });

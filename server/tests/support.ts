@@ -1,5 +1,5 @@
 /**
- * Test harness: an app on an in-memory database, users with exact
+ * Test harness: an app on a throwaway database, users with exact
  * permissions, and a signed-in client that behaves like the browser
  * (cookie jar + CSRF header on every state change).
  */
@@ -13,6 +13,7 @@ import { runMigrations } from '../src/db/migrator';
 import { users, type User } from '../src/db/schema';
 import { seedDatabase } from '../src/db/seeders';
 import { hashPassword } from '../src/modules/auth/password';
+import { loadSettings } from '../src/services/settings';
 
 export const TEST_PASSWORD = 'Correct-Horse-42';
 
@@ -21,8 +22,10 @@ let app: Express | null = null;
 /** Migrate, seed and build the app once per test file. */
 export async function bootstrap(): Promise<Express> {
   if (app) return app;
-  runMigrations(db);
+  await runMigrations(db);
   await seedDatabase(db);
+  // Tests also call services directly, outside a request.
+  await loadSettings();
   app = createApp();
   return app;
 }
@@ -43,7 +46,7 @@ export async function createTestUser(options: TestUserOptions = {}): Promise<Use
   cachedHash ??= await hashPassword(TEST_PASSWORD);
   userCounter += 1;
   const role = options.role ?? 'staff';
-  return db
+  return await db
     .insert(users)
     .values({
       name: options.name ?? `Test ${role} ${userCounter}`,
@@ -100,9 +103,9 @@ export async function signIn(target: Express, user: User, password = TEST_PASSWO
 
 /** Create a user with the given access and return a signed-in client. */
 export async function clientWith(target: Express, options: TestUserOptions = {}): Promise<Client> {
-  return signIn(target, await createTestUser(options));
+  return await signIn(target, await createTestUser(options));
 }
 
-export function ownerClient(target: Express): Promise<Client> {
-  return clientWith(target, { role: 'owner' });
+export async function ownerClient(target: Express): Promise<Client> {
+  return await clientWith(target, { role: 'owner' });
 }

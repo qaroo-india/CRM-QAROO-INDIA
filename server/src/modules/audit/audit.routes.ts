@@ -28,7 +28,7 @@ const auditQuery = paginationSchema.extend({
   q: z.string().trim().max(100).optional(),
 });
 
-auditRouter.get('/', requirePermission('audit:read'), (req, res) => {
+auditRouter.get('/', requirePermission('audit:read'), async (req, res) => {
   const query = parseQuery(auditQuery, req);
   const { timezone } = getSettings();
   const conditions: SQL[] = [];
@@ -44,10 +44,10 @@ auditRouter.get('/', requirePermission('audit:read'), (req, res) => {
   }
 
   const where = conditions.length ? and(...conditions) : undefined;
-  const total = db.select({ n: count() }).from(auditLogs).where(where).get()?.n ?? 0;
+  const total = (await db.select({ n: count() }).from(auditLogs).where(where).get())?.n ?? 0;
   const { limit, offset } = pageWindow(query.page, query.limit);
 
-  const rows = db
+  const rows = await db
     .select({ log: auditLogs, actorName: users.name })
     .from(auditLogs)
     .leftJoin(users, eq(users.id, auditLogs.actorId))

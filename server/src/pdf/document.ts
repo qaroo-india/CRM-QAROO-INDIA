@@ -9,8 +9,9 @@
 
 import { resolve } from 'node:path';
 import PDFDocument from 'pdfkit';
+import { serverPath } from '../config/paths';
 
-const FONT_DIR = resolve(process.cwd(), 'assets', 'fonts');
+const FONT_DIR = serverPath('assets', 'fonts');
 
 export const PDF_COLORS = {
   ink: '#0f172a',

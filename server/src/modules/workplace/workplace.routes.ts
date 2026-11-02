@@ -52,37 +52,37 @@ import {
 } from './workplace.service';
 
 export const leaveRouter = Router();
-leaveRouter.get('/', (req, res) => ok(res, listLeave(contextFrom(req), parseQuery(leaveListQuerySchema, req))));
-leaveRouter.get('/today', requirePermission('leave:approve'), (_req, res) => ok(res, onLeave()));
-leaveRouter.post('/', (req, res) => created(res, requestLeave(contextFrom(req), req.body)));
-leaveRouter.post('/:id/decision', requirePermission('leave:approve'), (req, res) => ok(res, decideLeave(contextFrom(req), paramId(req), req.body)));
-leaveRouter.post('/:id/cancel', (req, res) => ok(res, cancelLeave(contextFrom(req), paramId(req))));
+leaveRouter.get('/', async (req, res) => ok(res, await listLeave(contextFrom(req), parseQuery(leaveListQuerySchema, req))));
+leaveRouter.get('/today', requirePermission('leave:approve'), async (_req, res) => ok(res, await onLeave()));
+leaveRouter.post('/', async (req, res) => created(res, await requestLeave(contextFrom(req), req.body)));
+leaveRouter.post('/:id/decision', requirePermission('leave:approve'), async (req, res) => ok(res, await decideLeave(contextFrom(req), paramId(req), req.body)));
+leaveRouter.post('/:id/cancel', async (req, res) => ok(res, await cancelLeave(contextFrom(req), paramId(req))));
 
 export const tasksRouter = Router();
-tasksRouter.get('/', (req, res) => ok(res, listTasks(contextFrom(req), parseQuery(taskListQuerySchema, req))));
-tasksRouter.post('/', uploadSingle, (req, res) => created(res, createTask(contextFrom(req), req.file, req.body)));
-tasksRouter.put('/:id', (req, res) => ok(res, updateTask(contextFrom(req), paramId(req), req.body)));
-tasksRouter.post('/:id/status', (req, res) => ok(res, setTaskStatus(contextFrom(req), paramId(req), req.body)));
-tasksRouter.get('/:id/attachment', (req, res) => sendDownload(res, taskAttachment(contextFrom(req), paramId(req))));
+tasksRouter.get('/', async (req, res) => ok(res, await listTasks(contextFrom(req), parseQuery(taskListQuerySchema, req))));
+tasksRouter.post('/', uploadSingle, async (req, res) => created(res, await createTask(contextFrom(req), req.file, req.body)));
+tasksRouter.put('/:id', async (req, res) => ok(res, await updateTask(contextFrom(req), paramId(req), req.body)));
+tasksRouter.post('/:id/status', async (req, res) => ok(res, await setTaskStatus(contextFrom(req), paramId(req), req.body)));
+tasksRouter.get('/:id/attachment', async (req, res) => sendDownload(res, await taskAttachment(contextFrom(req), paramId(req))));
 
 export const inventoryRouter = Router();
-inventoryRouter.get('/items', (req, res) => {
+inventoryRouter.get('/items', async (req, res) => {
   const ctx = contextFrom(req);
   const q = parseQuery(inventoryListQuerySchema, req);
   // Without inventory:read, people may only browse what they can request.
   if (!hasPermission(ctx.permissions, 'inventory:read') && !q.available) throw ApiError.forbidden('Browsing the full register needs inventory access; add ?available=true to see what can be requested.');
-  ok(res, listItems(q));
+  ok(res, await listItems(q));
 });
-inventoryRouter.post('/items', requirePermission('inventory:write'), (req, res) => created(res, saveItem(contextFrom(req), req.body)));
-inventoryRouter.put('/items/:id', requirePermission('inventory:write'), (req, res) => ok(res, saveItem(contextFrom(req), req.body, paramId(req))));
-inventoryRouter.get('/requests', (req, res) => ok(res, listRequests(contextFrom(req), parseQuery(inventoryRequestListQuerySchema, req))));
-inventoryRouter.post('/requests', (req, res) => created(res, requestItem(contextFrom(req), req.body)));
-inventoryRouter.post('/requests/:id/decision', (req, res) => ok(res, decideRequest(contextFrom(req), paramId(req), req.body)));
+inventoryRouter.post('/items', requirePermission('inventory:write'), async (req, res) => created(res, await saveItem(contextFrom(req), req.body)));
+inventoryRouter.put('/items/:id', requirePermission('inventory:write'), async (req, res) => ok(res, await saveItem(contextFrom(req), req.body, paramId(req))));
+inventoryRouter.get('/requests', async (req, res) => ok(res, await listRequests(contextFrom(req), parseQuery(inventoryRequestListQuerySchema, req))));
+inventoryRouter.post('/requests', async (req, res) => created(res, await requestItem(contextFrom(req), req.body)));
+inventoryRouter.post('/requests/:id/decision', async (req, res) => ok(res, await decideRequest(contextFrom(req), paramId(req), req.body)));
 
 export const drivesRouter = Router();
-drivesRouter.get('/', requirePermission('placements:read'), (req, res) => ok(res, listDrives(parseQuery(driveListQuerySchema, req))));
-drivesRouter.post('/', requirePermission('placements:write'), (req, res) => created(res, createDrive(contextFrom(req), req.body)));
-drivesRouter.get('/:id', requirePermission('placements:read'), (req, res) => ok(res, getDrive(paramId(req))));
-drivesRouter.put('/:id', requirePermission('placements:write'), (req, res) => ok(res, updateDrive(contextFrom(req), paramId(req), req.body)));
-drivesRouter.get('/:id/applicants', requirePermission('placements:read'), (req, res) => ok(res, driveApplicants(paramId(req))));
-drivesRouter.post('/:id/applicants', requirePermission('placements:write'), (req, res) => ok(res, addApplicants(contextFrom(req), paramId(req), req.body)));
+drivesRouter.get('/', requirePermission('placements:read'), async (req, res) => ok(res, await listDrives(parseQuery(driveListQuerySchema, req))));
+drivesRouter.post('/', requirePermission('placements:write'), async (req, res) => created(res, await createDrive(contextFrom(req), req.body)));
+drivesRouter.get('/:id', requirePermission('placements:read'), async (req, res) => ok(res, await getDrive(paramId(req))));
+drivesRouter.put('/:id', requirePermission('placements:write'), async (req, res) => ok(res, await updateDrive(contextFrom(req), paramId(req), req.body)));
+drivesRouter.get('/:id/applicants', requirePermission('placements:read'), async (req, res) => ok(res, await driveApplicants(paramId(req))));
+drivesRouter.post('/:id/applicants', requirePermission('placements:write'), async (req, res) => ok(res, await addApplicants(contextFrom(req), paramId(req), req.body)));

@@ -7,14 +7,16 @@
  *   2. commit  -- the user confirms which rows to import; each row goes
  *      through the normal create path (codes, audit trail, duplicate rules).
  *
- * Previews are held in memory for 30 minutes and only by the user who made
- * them. Dates with slashes are read day-first (DD/MM/YYYY), as written in India.
+ * Previews are kept for 30 minutes, in the database so any server instance
+ * can confirm them, and only for the user who made them. Dates with slashes
+ * are read day-first (DD/MM/YYYY), as written in India.
  */
 
 import { randomBytes } from 'node:crypto';
 import { leadSchema, normalisePhone, studentSchema, type ImportEntity, type ImportPreview, type ImportResult, type ImportRowResult, importCommitSchema } from '@ims/shared';
+import { and, eq, gt, lt } from 'drizzle-orm';
 import { db } from '../../db';
-import { courses, leadSources, users } from '../../db/schema';
+import { courses, importPreviews, leadSources, users } from '../../db/schema';
 import { recordAudit } from '../../services/audit';
 import { instituteToday } from '../../services/clock';
 import { findDuplicates } from '../../services/duplicates';
@@ -24,22 +26,13 @@ import type { RequestContext } from '../../utils/context';
 import { createLead } from '../leads/leads.service';
 import { createStudent } from '../students/students.service';
 import type { UploadedFile } from '../documents/documents.service';
+import { mapSeries } from '../../utils/series';
 
 export const MAX_IMPORT_ROWS = 2000;
 const TTL_MS = 30 * 60_000;
 
-interface StoredPreview {
-  entity: ImportEntity;
-  userId: string;
-  expiresAt: number;
-  fileName: string;
-  rows: ImportRowResult[];
-}
-
-const previews = new Map<string, StoredPreview>();
-
-function prune(now = Date.now()) {
-  for (const [token, p] of previews) if (p.expiresAt < now) previews.delete(token);
+async function prune(now = new Date()) {
+  await db.delete(importPreviews).where(lt(importPreviews.expiresAt, now)).run();
 }
 
 const norm = (header: string) => header.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -95,10 +88,10 @@ function mapColumns(headers: string[], fields: Record<string, string[]>): Map<nu
   return map;
 }
 
-function lookups() {
-  const sources = db.select({ id: leadSources.id, name: leadSources.name, isActive: leadSources.isActive }).from(leadSources).all();
-  const courseRows = db.select({ id: courses.id, name: courses.name, code: courses.code }).from(courses).all();
-  const people = db.select({ id: users.id, name: users.name, email: users.email, isActive: users.isActive }).from(users).all();
+async function lookups() {
+  const sources = await db.select({ id: leadSources.id, name: leadSources.name, isActive: leadSources.isActive }).from(leadSources).all();
+  const courseRows = await db.select({ id: courses.id, name: courses.name, code: courses.code }).from(courses).all();
+  const people = await db.select({ id: users.id, name: users.name, email: users.email, isActive: users.isActive }).from(users).all();
   const find = <T extends { name: string }>(list: T[], value: string, extra?: (item: T) => string[]) =>
     list.find((item) => [item.name, ...(extra?.(item) ?? [])].some((v) => v.trim().toLowerCase() === value.trim().toLowerCase()));
   return {
@@ -130,12 +123,12 @@ export async function previewImport(ctx: RequestContext, entity: ImportEntity, f
     throw ApiError.validation([{ path: 'file', message: `Missing column(s): ${missing.join(', ')}. Found: ${table.headers.join(', ') || 'none'}` }]);
   }
 
-  const find = lookups();
+  const find = await lookups();
   const today = instituteToday();
   const seenPhones = new Map<string, number>();
   const seenEmails = new Map<string, number>();
 
-  const rows: ImportRowResult[] = table.rows.map((cells, index) => {
+  const rows: ImportRowResult[] = (await mapSeries(table.rows, async (cells, index) => {
     const rowNumber = index + 1;
     const raw: Record<string, string> = {};
     columns.forEach((field, col) => {
@@ -201,7 +194,7 @@ export async function previewImport(ctx: RequestContext, entity: ImportEntity, f
     const phone = raw.phone ? normalisePhone(raw.phone) : '';
     const email = (raw.email ?? '').toLowerCase();
     if (phone.length >= 7 || email) {
-      const matches = findDuplicates({ phone: raw.phone, email: raw.email || undefined }).filter((m) => (entity === 'students' ? m.kind === 'student' : true));
+      const matches = (await findDuplicates({ phone: raw.phone, email: raw.email || undefined })).filter((m) => (entity === 'students' ? m.kind === 'student' : true));
       for (const m of matches.slice(0, 3)) duplicates.push({ kind: 'existing', label: `${m.kind === 'lead' ? 'Lead' : 'Student'} ${m.code} · ${m.name} (${m.matchedOn.join(' & ')})` });
       const earlier = (phone.length >= 7 && seenPhones.get(phone)) || (email && seenEmails.get(email));
       if (earlier) duplicates.push({ kind: 'in_file', label: `Same ${seenPhones.get(phone) === earlier ? 'phone' : 'email'} as row ${earlier}` });
@@ -209,12 +202,12 @@ export async function previewImport(ctx: RequestContext, entity: ImportEntity, f
       if (email && !seenEmails.has(email)) seenEmails.set(email, rowNumber);
     }
     return { row: rowNumber, data, errors, duplicates };
-  });
+  }));
 
-  prune();
+  await prune();
   const token = randomBytes(18).toString('base64url');
   const expiresAt = Date.now() + TTL_MS;
-  previews.set(token, { entity, userId: ctx.actorId, expiresAt, fileName: file.originalname, rows });
+  await db.insert(importPreviews).values({ token, entity, userId: ctx.actorId, fileName: file.originalname, rows, expiresAt: new Date(expiresAt) }).run();
 
   const invalid = rows.filter((r) => r.errors.length > 0).length;
   return {
@@ -228,14 +221,19 @@ export async function previewImport(ctx: RequestContext, entity: ImportEntity, f
   };
 }
 
-export function commitImport(ctx: RequestContext, entity: ImportEntity, raw: unknown): ImportResult {
+export async function commitImport(ctx: RequestContext, entity: ImportEntity, raw: unknown): Promise<ImportResult> {
   const input = importCommitSchema.parse(raw);
-  prune();
-  const preview = previews.get(input.token);
-  if (!preview || preview.userId !== ctx.actorId || preview.entity !== entity) {
+  await prune();
+  // Claim and delete in one statement: one commit per preview, so a double
+  // click (or two instances) cannot import twice.
+  const preview = await db
+    .delete(importPreviews)
+    .where(and(eq(importPreviews.token, input.token), eq(importPreviews.userId, ctx.actorId), eq(importPreviews.entity, entity), gt(importPreviews.expiresAt, new Date())))
+    .returning()
+    .get();
+  if (!preview) {
     throw ApiError.conflict('This preview has expired or belongs to someone else. Upload the file again.', 'PREVIEW_EXPIRED');
   }
-  previews.delete(input.token); // one commit per preview: a double click cannot import twice
 
   const wanted = new Set(input.rows);
   const result: ImportResult = { created: 0, skipped: 0, codes: [], failures: [] };
@@ -254,9 +252,9 @@ export function commitImport(ctx: RequestContext, entity: ImportEntity, raw: unk
     try {
       if (entity === 'leads') {
         const { sourceName: _s, courseName: _c, counsellorName: _n, ...data } = row.data;
-        result.codes.push(createLead(ctx, data).leadCode);
+        result.codes.push((await createLead(ctx, data)).leadCode);
       } else {
-        result.codes.push(createStudent(ctx, { ...row.data, allowDuplicate: input.allowDuplicates }).studentCode);
+        result.codes.push((await createStudent(ctx, { ...row.data, allowDuplicate: input.allowDuplicates })).studentCode);
       }
       result.created += 1;
     } catch (error) {
@@ -264,7 +262,7 @@ export function commitImport(ctx: RequestContext, entity: ImportEntity, raw: unk
       result.failures.push({ row: row.row, message: error instanceof Error ? error.message : 'Could not be saved' });
     }
   }
-  recordAudit(db, ctx, {
+  await recordAudit(db, ctx, {
     action: 'import',
     entityType: entity === 'leads' ? 'lead' : 'student',
     summary: `Imported ${result.created} ${entity} from ${preview.fileName}${result.skipped ? ` (${result.skipped} skipped)` : ''}`,

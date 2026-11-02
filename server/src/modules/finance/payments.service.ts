@@ -1,11 +1,12 @@
 /**
  * Receipts, refunds and reversals -- the append-only money ledger.
  *
- * Recording a payment is ONE synchronous transaction: overpayment check,
- * allocation to instalments, receipt number, admission activation and audit
- * entry either all commit or none do. better-sqlite3 transactions cannot
- * interleave, so two cashiers recording payments for the same student at the
- * same moment cannot both pass the "is it more than outstanding?" check.
+ * Recording a payment is ONE transaction: overpayment check, allocation to
+ * instalments, receipt number, admission activation and audit entry either
+ * all commit or none do. Transactions start with BEGIN IMMEDIATE (libSQL's
+ * "write" mode), which takes the write lock up front, so two cashiers
+ * recording payments for the same student at the same moment cannot both
+ * pass the "is it more than outstanding?" check.
  *
  * Nothing here ever deletes or edits an amount:
  *   - a mistake is REVERSED (status -> 'reversed', with who/when/why); it then
@@ -73,9 +74,9 @@ export function paymentQuery(database: DbLike = db) {
 
 type PaymentRow = Awaited<ReturnType<ReturnType<typeof paymentQuery>['all']>>[number];
 
-export function withAllocations(rows: PaymentRow[], database: DbLike = db): PaymentDto[] {
+export async function withAllocations(rows: PaymentRow[], database: DbLike = db): Promise<PaymentDto[]> {
   if (rows.length === 0) return [];
-  const allocationRows = database
+  const allocationRows = await database
     .select({ allocation: paymentAllocations, sequence: instalments.sequence, dueDate: instalments.dueDate })
     .from(paymentAllocations)
     .leftJoin(instalments, eq(instalments.id, paymentAllocations.instalmentId))
@@ -118,14 +119,14 @@ export function withAllocations(rows: PaymentRow[], database: DbLike = db): Paym
   }));
 }
 
-export function getPayment(id: string, database: DbLike = db): PaymentDto {
-  const row = paymentQuery(database).where(eq(payments.id, id)).get();
+export async function getPayment(id: string, database: DbLike = db): Promise<PaymentDto> {
+  const row = await paymentQuery(database).where(eq(payments.id, id)).get();
   if (!row) throw ApiError.notFound('Payment');
-  return withAllocations([row], database)[0]!;
+  return (await withAllocations([row], database))[0]!;
 }
 
-export function paymentsForAdmission(admissionId: string): PaymentDto[] {
-  return withAllocations(paymentQuery().where(eq(payments.admissionId, admissionId)).orderBy(desc(payments.paymentDate), desc(payments.createdAt)).all());
+export async function paymentsForAdmission(admissionId: string): Promise<PaymentDto[]> {
+  return await withAllocations(await paymentQuery().where(eq(payments.admissionId, admissionId)).orderBy(desc(payments.paymentDate), desc(payments.createdAt)).all());
 }
 
 type ListQuery = z.output<typeof paymentListQuerySchema>;
@@ -163,11 +164,11 @@ const SORTS: Record<string, SQLWrapper> = {
   createdAt: payments.createdAt,
 };
 
-export function listPayments(query: ListQuery): PaymentList {
+export async function listPayments(query: ListQuery): Promise<PaymentList> {
   const where = and(...listFilters(query));
   // Totals over the whole filtered set (not just this page). Only succeeded
   // rows are money; reversed rows are counted separately for visibility.
-  const summary = db
+  const summary = (await db
     .select({
       count: count(),
       gross: sql<number>`coalesce(sum(case when ${payments.status} = 'succeeded' and ${payments.direction} = 'in' then ${payments.amountMinor} else 0 end), 0)`.mapWith(Number),
@@ -178,11 +179,11 @@ export function listPayments(query: ListQuery): PaymentList {
     .innerJoin(students, eq(students.id, payments.studentId))
     .innerJoin(admissions, eq(admissions.id, payments.admissionId))
     .where(where)
-    .get()!;
+    .get())!;
 
   const sortColumn = SORTS[query.sort ?? 'paymentDate'] ?? payments.paymentDate;
   const { limit, offset } = pageWindow(query.page, query.limit);
-  const rows = paymentQuery()
+  const rows = await paymentQuery()
     .where(where)
     .orderBy(query.order === 'asc' ? asc(sortColumn) : desc(sortColumn), desc(payments.createdAt))
     .limit(limit)
@@ -190,7 +191,7 @@ export function listPayments(query: ListQuery): PaymentList {
     .all();
 
   return {
-    ...paginated(withAllocations(rows), summary.count, query.page, query.limit),
+    ...paginated(await withAllocations(rows), summary.count, query.page, query.limit),
     summary: {
       count: summary.count,
       grossMinor: summary.gross,
@@ -235,13 +236,13 @@ export interface RecordedPayment {
 }
 
 /** Shared by direct receipts and received loan disbursements. Must run inside `tx`. */
-export function insertPayment(
+export async function insertPayment(
   tx: Tx,
   ctx: RequestContext,
   input: z.output<typeof paymentCreateSchema>,
   extra: { idempotencyKey?: string | null; requestHash?: string | null; summaryPrefix?: string } = {},
-): Payment {
-  const admission = getAdmissionRow(input.admissionId, tx);
+): Promise<Payment> {
+  const admission = await getAdmissionRow(input.admissionId, tx);
   if (admission.status === 'cancelled') {
     throw ApiError.unprocessable('This admission is cancelled; it cannot take payments.', 'ADMISSION_CANCELLED');
   }
@@ -249,7 +250,7 @@ export function insertPayment(
     throw ApiError.validation([{ path: 'paymentDate', message: 'A payment cannot be dated before the admission' }]);
   }
 
-  const finance = getAdmission(admission.id, tx);
+  const finance = await getAdmission(admission.id, tx);
   if (input.amountMinor > finance.outstandingMinor) {
     throw ApiError.unprocessable(
       `This payment of ${formatMoney(input.amountMinor)} is more than the outstanding balance of ${formatMoney(finance.outstandingMinor)}.`,
@@ -257,7 +258,7 @@ export function insertPayment(
     );
   }
 
-  const open = openInstalments(tx, admission.id);
+  const open = await openInstalments(tx, admission.id);
   let allocations: Allocation[];
   if (input.allocations?.length) {
     const byId = new Map(open.map((row) => [row.id, row]));
@@ -293,14 +294,14 @@ export function insertPayment(
   }
 
   const priorReceipts =
-    tx
+    (await tx
       .select({ n: count() })
       .from(payments)
       .where(and(eq(payments.admissionId, admission.id), eq(payments.status, 'succeeded'), eq(payments.direction, 'in')))
-      .get()?.n ?? 0;
+      .get())?.n ?? 0;
 
-  const receiptNumber = nextCode(tx, getSettings().receiptNumberPrefix, input.paymentDate);
-  const payment = tx
+  const receiptNumber = await nextCode(tx, getSettings().receiptNumberPrefix, input.paymentDate);
+  const payment = await tx
     .insert(payments)
     .values({
       receiptNumber,
@@ -322,23 +323,23 @@ export function insertPayment(
     .get();
 
   for (const allocation of allocations) {
-    tx.insert(paymentAllocations)
+    await tx.insert(paymentAllocations)
       .values({ paymentId: payment.id, admissionId: admission.id, instalmentId: allocation.instalmentId, amountMinor: allocation.amountMinor })
       .run();
   }
 
   // Invariant: a receipt is fully explained by its allocations, to the paisa.
-  const allocated = tx
+  const allocated = (await tx
     .select({ total: sql<number>`coalesce(sum(${paymentAllocations.amountMinor}), 0)`.mapWith(Number) })
     .from(paymentAllocations)
     .where(eq(paymentAllocations.paymentId, payment.id))
-    .get()!.total;
+    .get())!.total;
   if (allocated !== payment.amountMinor) {
     throw new Error(`Allocation invariant violated for ${receiptNumber}: ${allocated} != ${payment.amountMinor}`);
   }
 
-  activateIfFeeCovered(tx, ctx, admission.id, input.paymentDate);
-  recordAudit(tx, ctx, {
+  await activateIfFeeCovered(tx, ctx, admission.id, input.paymentDate);
+  await recordAudit(tx, ctx, {
     action: 'create',
     entityType: 'payment',
     entityId: payment.id,
@@ -348,48 +349,48 @@ export function insertPayment(
   return payment;
 }
 
-export function recordPayment(ctx: RequestContext, raw: unknown, idempotencyKey?: string): RecordedPayment {
+export async function recordPayment(ctx: RequestContext, raw: unknown, idempotencyKey?: string): Promise<RecordedPayment> {
   const input = paymentCreateSchema.parse(raw);
   const hash = requestHash(input);
 
   if (idempotencyKey) {
-    const existing = db.select().from(payments).where(eq(payments.idempotencyKey, idempotencyKey)).get();
+    const existing = await db.select().from(payments).where(eq(payments.idempotencyKey, idempotencyKey)).get();
     if (existing) {
       if (existing.requestHash !== hash) {
         throw ApiError.conflict('This idempotency key was already used for a different payment.', 'IDEMPOTENCY_KEY_REUSED');
       }
-      return { payment: getPayment(existing.id), created: false };
+      return { payment: await getPayment(existing.id), created: false };
     }
   }
 
-  const id = db.transaction((tx) => insertPayment(tx, ctx, input, { idempotencyKey, requestHash: hash }).id);
+  const id = await db.transaction(async (tx) => (await insertPayment(tx, ctx, input, { idempotencyKey, requestHash: hash })).id);
   paymentHooks.afterRecorded(id);
-  return { payment: getPayment(id), created: true };
+  return { payment: await getPayment(id), created: true };
 }
 
 /* ------------------------------------------------------------------ *
  * Reversal and refund
  * ------------------------------------------------------------------ */
 
-export function reversePayment(ctx: RequestContext, id: string, raw: unknown): PaymentDto {
+export async function reversePayment(ctx: RequestContext, id: string, raw: unknown): Promise<PaymentDto> {
   const { reason } = reversalSchema.parse(raw);
-  db.transaction((tx) => {
-    const payment = tx.select().from(payments).where(eq(payments.id, id)).get();
+  await db.transaction(async (tx) => {
+    const payment = await tx.select().from(payments).where(eq(payments.id, id)).get();
     if (!payment) throw ApiError.notFound('Payment');
     if (payment.status !== 'succeeded') {
       throw ApiError.conflict(`Only a succeeded receipt can be reversed; this one is ${payment.status}.`, 'NOT_REVERSIBLE');
     }
     if (payment.direction === 'in') {
-      const finance = getAdmission(payment.admissionId, tx);
+      const finance = await getAdmission(payment.admissionId, tx);
       if (finance.netPaidMinor - payment.amountMinor < 0) {
         throw ApiError.conflict('Part of this receipt has been refunded. Reverse the refund first.', 'REFUND_EXISTS');
       }
     }
-    tx.update(payments)
+    await tx.update(payments)
       .set({ status: 'reversed', reversedAt: new Date(), reversedById: ctx.actorId || null, reversalReason: reason })
       .where(eq(payments.id, id))
       .run();
-    recordAudit(tx, ctx, {
+    await recordAudit(tx, ctx, {
       action: 'reverse',
       entityType: 'payment',
       entityId: id,
@@ -398,17 +399,17 @@ export function reversePayment(ctx: RequestContext, id: string, raw: unknown): P
       after: { status: 'reversed', reason },
     });
   });
-  return getPayment(id);
+  return await getPayment(id);
 }
 
-export function refundPayment(ctx: RequestContext, admissionId: string, raw: unknown): PaymentDto {
+export async function refundPayment(ctx: RequestContext, admissionId: string, raw: unknown): Promise<PaymentDto> {
   const input = refundSchema.parse(raw);
-  const id = db.transaction((tx) => {
-    const admission = getAdmissionRow(admissionId, tx);
+  const id = await db.transaction(async (tx) => {
+    const admission = await getAdmissionRow(admissionId, tx);
     if (input.paymentDate < admission.admissionDate) {
       throw ApiError.validation([{ path: 'paymentDate', message: 'A refund cannot be dated before the admission' }]);
     }
-    const finance = getAdmission(admissionId, tx);
+    const finance = await getAdmission(admissionId, tx);
     if (input.amountMinor > finance.netPaidMinor) {
       throw ApiError.unprocessable(
         `Only ${formatMoney(finance.netPaidMinor)} has been received net of earlier refunds; a refund cannot exceed it.`,
@@ -416,16 +417,16 @@ export function refundPayment(ctx: RequestContext, admissionId: string, raw: unk
       );
     }
     if (input.refundOfId) {
-      const original = tx.select().from(payments).where(eq(payments.id, input.refundOfId)).get();
+      const original = await tx.select().from(payments).where(eq(payments.id, input.refundOfId)).get();
       if (!original || original.admissionId !== admissionId || original.direction !== 'in' || original.status !== 'succeeded') {
         throw ApiError.validation([{ path: 'refundOfId', message: 'Choose a succeeded receipt of this admission' }]);
       }
       const alreadyRefunded =
-        tx
+        (await tx
           .select({ total: sql<number>`coalesce(sum(${payments.amountMinor}), 0)`.mapWith(Number) })
           .from(payments)
           .where(and(eq(payments.refundOfId, original.id), eq(payments.status, 'succeeded')))
-          .get()?.total ?? 0;
+          .get())?.total ?? 0;
       if (alreadyRefunded + input.amountMinor > original.amountMinor) {
         throw ApiError.unprocessable(
           `Receipt ${original.receiptNumber} has ${formatMoney(original.amountMinor - alreadyRefunded)} left to refund.`,
@@ -434,10 +435,10 @@ export function refundPayment(ctx: RequestContext, admissionId: string, raw: unk
       }
     }
 
-    const refund = tx
+    const refund = await tx
       .insert(payments)
       .values({
-        receiptNumber: nextCode(tx, REFUND_PREFIX, input.paymentDate),
+        receiptNumber: await nextCode(tx, REFUND_PREFIX, input.paymentDate),
         studentId: admission.studentId,
         admissionId,
         paymentDate: input.paymentDate,
@@ -453,8 +454,8 @@ export function refundPayment(ctx: RequestContext, admissionId: string, raw: unk
       })
       .returning()
       .get();
-    tx.insert(paymentAllocations).values({ paymentId: refund.id, admissionId, instalmentId: null, amountMinor: input.amountMinor }).run();
-    recordAudit(tx, ctx, {
+    await tx.insert(paymentAllocations).values({ paymentId: refund.id, admissionId, instalmentId: null, amountMinor: input.amountMinor }).run();
+    await recordAudit(tx, ctx, {
       action: 'refund',
       entityType: 'payment',
       entityId: refund.id,
@@ -463,7 +464,7 @@ export function refundPayment(ctx: RequestContext, admissionId: string, raw: unk
     });
     return refund.id;
   });
-  return getPayment(id);
+  return await getPayment(id);
 }
 
 /* ------------------------------------------------------------------ *
@@ -471,24 +472,24 @@ export function refundPayment(ctx: RequestContext, admissionId: string, raw: unk
  * ------------------------------------------------------------------ */
 
 /** The payment plus the admission balance immediately after it, for printing. */
-export function getReceipt(id: string): ReceiptDto {
-  const payment = getPayment(id);
-  const admission = getAdmissionRow(payment.admissionId);
-  const ledger = db
+export async function getReceipt(id: string): Promise<ReceiptDto> {
+  const payment = await getPayment(id);
+  const admission = await getAdmissionRow(payment.admissionId);
+  const ledger = (await db
     .select()
     .from(payments)
     .where(and(eq(payments.admissionId, payment.admissionId), eq(payments.status, 'succeeded')))
-    .all()
+    .all())
     // Everything recorded up to and including this receipt.
     .filter((p) => p.paymentDate < payment.paymentDate || (p.paymentDate === payment.paymentDate && p.createdAt.toISOString() <= payment.createdAt));
   const received = ledger.reduce((sum, p) => sum + (p.direction === 'in' ? p.amountMinor : -p.amountMinor), 0);
   // Adjustments in force on the receipt date, so a reprint shows the balance as it stood then.
   const adjustments =
-    db
+    (await db
       .select({ total: sql<number>`coalesce(sum(${feeAdjustments.amountMinor}), 0)`.mapWith(Number) })
       .from(feeAdjustments)
       .where(and(eq(feeAdjustments.admissionId, payment.admissionId), isNull(feeAdjustments.voidedAt), sql`${feeAdjustments.effectiveDate} <= ${payment.paymentDate}`))
-      .get()?.total ?? 0;
+      .get())?.total ?? 0;
 
   return {
     payment,

@@ -51,34 +51,34 @@ const idempotencyKey = z
 
 export const admissionFinanceRouter = Router();
 
-admissionFinanceRouter.get('/:id/finance', requireAnyPermission('payments:read', 'feePlans:read'), (req, res) => {
+admissionFinanceRouter.get('/:id/finance', requireAnyPermission('payments:read', 'feePlans:read'), async (req, res) => {
   const id = paramId(req);
-  const plans = plansForAdmission(id);
+  const plans = await plansForAdmission(id);
   const view: AdmissionFinanceView = {
-    admission: getAdmission(id),
+    admission: await getAdmission(id),
     activePlan: plans.active,
     previousPlans: plans.previous,
-    payments: paymentsForAdmission(id),
-    adjustments: adjustmentsForAdmission(id),
-    loans: loansForAdmission(id),
+    payments: await paymentsForAdmission(id),
+    adjustments: await adjustmentsForAdmission(id),
+    loans: await loansForAdmission(id),
   };
   ok(res, view);
 });
 
-admissionFinanceRouter.post('/:id/fee-plan', requirePermission('feePlans:write'), (req, res) => {
-  created(res, createFeePlan(contextFrom(req), paramId(req), req.body));
+admissionFinanceRouter.post('/:id/fee-plan', requirePermission('feePlans:write'), async (req, res) => {
+  created(res, await createFeePlan(contextFrom(req), paramId(req), req.body));
 });
 
-admissionFinanceRouter.post('/:id/fee-plan/restructure', requirePermission('feePlans:write'), (req, res) => {
-  ok(res, restructureFeePlan(contextFrom(req), paramId(req), req.body));
+admissionFinanceRouter.post('/:id/fee-plan/restructure', requirePermission('feePlans:write'), async (req, res) => {
+  ok(res, await restructureFeePlan(contextFrom(req), paramId(req), req.body));
 });
 
-admissionFinanceRouter.post('/:id/adjustments', requirePermission('discounts:approve'), (req, res) => {
-  created(res, addAdjustment(contextFrom(req), paramId(req), req.body));
+admissionFinanceRouter.post('/:id/adjustments', requirePermission('discounts:approve'), async (req, res) => {
+  created(res, await addAdjustment(contextFrom(req), paramId(req), req.body));
 });
 
-admissionFinanceRouter.post('/:id/refunds', requirePermission('payments:refund'), (req, res) => {
-  created(res, refundPayment(contextFrom(req), paramId(req), req.body));
+admissionFinanceRouter.post('/:id/refunds', requirePermission('payments:refund'), async (req, res) => {
+  created(res, await refundPayment(contextFrom(req), paramId(req), req.body));
 });
 
 /* ------------------------------------------------------------------ *
@@ -87,20 +87,20 @@ admissionFinanceRouter.post('/:id/refunds', requirePermission('payments:refund')
 
 export const paymentsRouter = Router();
 
-paymentsRouter.get('/', requirePermission('payments:read'), (req, res) => {
-  ok(res, listPayments(parseQuery(paymentListQuerySchema, req)));
+paymentsRouter.get('/', requirePermission('payments:read'), async (req, res) => {
+  ok(res, await listPayments(parseQuery(paymentListQuerySchema, req)));
 });
 
-paymentsRouter.get('/:id', requirePermission('payments:read'), (req, res) => {
-  ok(res, getPayment(paramId(req)));
+paymentsRouter.get('/:id', requirePermission('payments:read'), async (req, res) => {
+  ok(res, await getPayment(paramId(req)));
 });
 
-paymentsRouter.get('/:id/receipt', requirePermission('payments:read'), (req, res) => {
-  ok(res, getReceipt(paramId(req)));
+paymentsRouter.get('/:id/receipt', requirePermission('payments:read'), async (req, res) => {
+  ok(res, await getReceipt(paramId(req)));
 });
 
 paymentsRouter.get('/:id/receipt.pdf', requirePermission('payments:read'), async (req, res) => {
-  const receipt = getReceipt(paramId(req));
+  const receipt = await getReceipt(paramId(req));
   const pdf = await renderReceiptPdf(receipt, new Date(), getSettings().timezone);
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="${receipt.payment.receiptNumber}.pdf"`);
@@ -108,15 +108,15 @@ paymentsRouter.get('/:id/receipt.pdf', requirePermission('payments:read'), async
   res.send(pdf);
 });
 
-paymentsRouter.post('/', requirePermission('payments:write'), (req, res) => {
+paymentsRouter.post('/', requirePermission('payments:write'), async (req, res) => {
   const key = idempotencyKey.parse(req.get('idempotency-key') ?? undefined);
-  const result = recordPayment(contextFrom(req), req.body, key);
+  const result = await recordPayment(contextFrom(req), req.body, key);
   if (result.created) created(res, result.payment);
   else ok(res, result.payment);
 });
 
-paymentsRouter.post('/:id/reverse', requirePermission('payments:reverse'), (req, res) => {
-  ok(res, reversePayment(contextFrom(req), paramId(req), req.body));
+paymentsRouter.post('/:id/reverse', requirePermission('payments:reverse'), async (req, res) => {
+  ok(res, await reversePayment(contextFrom(req), paramId(req), req.body));
 });
 
 /* ------------------------------------------------------------------ *
@@ -124,46 +124,46 @@ paymentsRouter.post('/:id/reverse', requirePermission('payments:reverse'), (req,
  * ------------------------------------------------------------------ */
 
 export const adjustmentsRouter = Router();
-adjustmentsRouter.post('/:id/void', requirePermission('discounts:approve'), (req, res) => {
-  ok(res, voidAdjustment(contextFrom(req), paramId(req), req.body));
+adjustmentsRouter.post('/:id/void', requirePermission('discounts:approve'), async (req, res) => {
+  ok(res, await voidAdjustment(contextFrom(req), paramId(req), req.body));
 });
 
 export const instalmentsRouter = Router();
-instalmentsRouter.get('/', requirePermission('feePlans:read'), (req, res) => {
-  ok(res, listInstalments(parseQuery(instalmentListQuerySchema, req)));
+instalmentsRouter.get('/', requirePermission('feePlans:read'), async (req, res) => {
+  ok(res, await listInstalments(parseQuery(instalmentListQuerySchema, req)));
 });
 
 export const loansRouter = Router();
 
-loansRouter.get('/', requirePermission('loans:read'), (req, res) => {
-  ok(res, listLoans(parseQuery(loanListQuerySchema, req)));
+loansRouter.get('/', requirePermission('loans:read'), async (req, res) => {
+  ok(res, await listLoans(parseQuery(loanListQuerySchema, req)));
 });
 
-loansRouter.get('/summary', requirePermission('loans:read'), (_req, res) => {
-  ok(res, loanSummary());
+loansRouter.get('/summary', requirePermission('loans:read'), async (_req, res) => {
+  ok(res, await loanSummary());
 });
 
-loansRouter.get('/:id', requirePermission('loans:read'), (req, res) => {
-  ok(res, getLoan(paramId(req)));
+loansRouter.get('/:id', requirePermission('loans:read'), async (req, res) => {
+  ok(res, await getLoan(paramId(req)));
 });
 
-loansRouter.post('/', requirePermission('loans:write'), (req, res) => {
-  created(res, createLoan(contextFrom(req), req.body));
+loansRouter.post('/', requirePermission('loans:write'), async (req, res) => {
+  created(res, await createLoan(contextFrom(req), req.body));
 });
 
-loansRouter.put('/:id', requirePermission('loans:write'), (req, res) => {
-  ok(res, updateLoan(contextFrom(req), paramId(req), req.body));
+loansRouter.put('/:id', requirePermission('loans:write'), async (req, res) => {
+  ok(res, await updateLoan(contextFrom(req), paramId(req), req.body));
 });
 
-loansRouter.post('/:id/status', requirePermission('loans:write'), (req, res) => {
-  ok(res, changeLoanStatus(contextFrom(req), paramId(req), req.body));
+loansRouter.post('/:id/status', requirePermission('loans:write'), async (req, res) => {
+  ok(res, await changeLoanStatus(contextFrom(req), paramId(req), req.body));
 });
 
-loansRouter.post('/:id/disbursements', requirePermission('loans:disburse'), (req, res) => {
-  created(res, recordDisbursement(contextFrom(req), paramId(req), req.body));
+loansRouter.post('/:id/disbursements', requirePermission('loans:disburse'), async (req, res) => {
+  created(res, await recordDisbursement(contextFrom(req), paramId(req), req.body));
 });
 
-loansRouter.post('/:id/disbursements/:did/received', requirePermission('loans:disburse'), (req, res) => {
+loansRouter.post('/:id/disbursements/:did/received', requirePermission('loans:disburse'), async (req, res) => {
   const { receivedOn } = parseBody(z.object({ receivedOn: dateOnlySchema }), req);
-  ok(res, markDisbursementReceived(contextFrom(req), paramId(req), paramId(req, 'did'), receivedOn));
+  ok(res, await markDisbursementReceived(contextFrom(req), paramId(req), paramId(req, 'did'), receivedOn));
 });

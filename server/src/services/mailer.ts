@@ -96,5 +96,5 @@ export function mailTransportName(): 'smtp' | 'log' | 'disabled' | 'test' {
 
 export async function sendMail(message: MailMessage): Promise<MailResult> {
   if (message.to.length === 0) throw new MailError('No recipients');
-  return (override ?? configuredTransport())(message);
+  return await (override ?? configuredTransport())(message);
 }

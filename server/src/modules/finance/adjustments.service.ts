@@ -16,14 +16,14 @@ import { getAdmission, getAdmissionRow } from '../admissions/admissions.service'
 
 const approver = alias(users, 'approver');
 
-export function adjustmentsForAdmission(admissionId: string): FeeAdjustmentDto[] {
-  return db
+export async function adjustmentsForAdmission(admissionId: string): Promise<FeeAdjustmentDto[]> {
+  return (await db
     .select({ adjustment: feeAdjustments, approvedByName: approver.name })
     .from(feeAdjustments)
     .leftJoin(approver, eq(approver.id, feeAdjustments.approvedById))
     .where(eq(feeAdjustments.admissionId, admissionId))
     .orderBy(desc(feeAdjustments.effectiveDate), desc(feeAdjustments.createdAt))
-    .all()
+    .all())
     .map(({ adjustment: a, approvedByName }) => ({
       id: a.id,
       admissionId: a.admissionId,
@@ -38,27 +38,27 @@ export function adjustmentsForAdmission(admissionId: string): FeeAdjustmentDto[]
     }));
 }
 
-export function addAdjustment(ctx: RequestContext, admissionId: string, raw: unknown): FeeAdjustmentDto[] {
+export async function addAdjustment(ctx: RequestContext, admissionId: string, raw: unknown): Promise<FeeAdjustmentDto[]> {
   const input = adjustmentSchema.parse(raw);
-  db.transaction((tx) => {
-    const admission = getAdmissionRow(admissionId, tx);
+  await db.transaction(async (tx) => {
+    const admission = await getAdmissionRow(admissionId, tx);
     if (admission.status === 'cancelled') throw ApiError.unprocessable('This admission is cancelled.', 'ADMISSION_CANCELLED');
     if (input.effectiveDate < admission.admissionDate) {
       throw ApiError.validation([{ path: 'effectiveDate', message: 'Cannot take effect before the admission date' }]);
     }
-    const outstanding = getAdmission(admissionId, tx).outstandingMinor;
+    const outstanding = (await getAdmission(admissionId, tx)).outstandingMinor;
     if (input.amountMinor > outstanding) {
       throw ApiError.unprocessable(
         `An adjustment of ${formatMoney(input.amountMinor)} is more than the outstanding ${formatMoney(outstanding)}.`,
         'ADJUSTMENT_EXCEEDS_OUTSTANDING',
       );
     }
-    const created = tx
+    const created = await tx
       .insert(feeAdjustments)
       .values({ admissionId, ...input, approvedById: ctx.actorId || null, createdById: ctx.actorId || null })
       .returning()
       .get();
-    recordAudit(tx, ctx, {
+    await recordAudit(tx, ctx, {
       action: 'approve',
       entityType: 'fee_adjustment',
       entityId: created.id,
@@ -66,17 +66,17 @@ export function addAdjustment(ctx: RequestContext, admissionId: string, raw: unk
       after: created,
     });
   });
-  return adjustmentsForAdmission(admissionId);
+  return await adjustmentsForAdmission(admissionId);
 }
 
-export function voidAdjustment(ctx: RequestContext, id: string, raw: unknown): FeeAdjustmentDto[] {
+export async function voidAdjustment(ctx: RequestContext, id: string, raw: unknown): Promise<FeeAdjustmentDto[]> {
   const { reason } = reversalSchema.parse(raw);
-  const adjustment = db.select().from(feeAdjustments).where(eq(feeAdjustments.id, id)).get();
+  const adjustment = await db.select().from(feeAdjustments).where(eq(feeAdjustments.id, id)).get();
   if (!adjustment) throw ApiError.notFound('Adjustment');
   if (adjustment.voidedAt) throw ApiError.conflict('This adjustment is already void.');
-  db.transaction((tx) => {
-    tx.update(feeAdjustments).set({ voidedAt: new Date(), voidReason: reason }).where(eq(feeAdjustments.id, id)).run();
-    recordAudit(tx, ctx, {
+  await db.transaction(async (tx) => {
+    await tx.update(feeAdjustments).set({ voidedAt: new Date(), voidReason: reason }).where(eq(feeAdjustments.id, id)).run();
+    await recordAudit(tx, ctx, {
       action: 'void',
       entityType: 'fee_adjustment',
       entityId: id,
@@ -85,5 +85,5 @@ export function voidAdjustment(ctx: RequestContext, id: string, raw: unknown): F
       after: { voidReason: reason },
     });
   });
-  return adjustmentsForAdmission(adjustment.admissionId);
+  return await adjustmentsForAdmission(adjustment.admissionId);
 }

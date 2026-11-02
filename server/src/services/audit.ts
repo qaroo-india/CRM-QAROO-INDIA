@@ -49,8 +49,8 @@ export interface AuditEntry {
   after?: unknown;
 }
 
-export function recordAudit(database: DbLike, ctx: RequestContext, entry: AuditEntry): void {
-  database
+export async function recordAudit(database: DbLike, ctx: RequestContext, entry: AuditEntry): Promise<void> {
+  await database
     .insert(auditLogs)
     .values({
       actorId: ctx.actorId || null,

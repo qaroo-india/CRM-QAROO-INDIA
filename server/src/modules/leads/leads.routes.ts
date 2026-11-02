@@ -39,20 +39,20 @@ import {
 
 export const leadsRouter = Router();
 
-leadsRouter.get('/', requirePermission('leads:read'), (req, res) => {
-  ok(res, listLeads(parseQuery(leadListQuerySchema, req)));
+leadsRouter.get('/', requirePermission('leads:read'), async (req, res) => {
+  ok(res, await listLeads(parseQuery(leadListQuerySchema, req)));
 });
 
 /** Excel or CSV of every lead matching the list filters (capped at 10,000). */
 leadsRouter.get('/export', requirePermission('leads:export'), async (req, res) => {
   const format = req.query.format === 'csv' ? 'csv' : 'xlsx';
   const query = parseQuery(leadListQuerySchema, req);
-  const { rows, total } = leadsForExport(query);
+  const { rows, total } = await leadsForExport(query);
   const ctx = contextFrom(req);
   const headers = ['Lead code', 'Name', 'Phone', 'Email', 'Enquiry date', 'Source', 'Campaign', 'Ad reference', 'UTM source', 'UTM medium', 'UTM campaign', 'UTM term', 'UTM content', 'Course', 'Counsellor', 'Follow-up date', 'Priority', 'Status', 'Lost reason', 'Converted on', 'Notes'];
   const values = rows.map((l) => [l.leadCode, l.name, l.phone, l.email, l.enquiryDate, l.sourceName, l.campaignName, l.adReference, l.utmSource, l.utmMedium, l.utmCampaign, l.utmTerm, l.utmContent, l.courseName, l.counsellorName, l.followUpDate, l.priority, l.status.replace(/_/g, ' '), l.lostReason, l.convertedOn, l.notes]);
   const stamp = instituteToday();
-  recordAudit(db, ctx, { action: 'export', entityType: 'lead', summary: `Exported ${rows.length} of ${total} leads as ${format.toUpperCase()}`, after: { ...req.query } });
+  await recordAudit(db, ctx, { action: 'export', entityType: 'lead', summary: `Exported ${rows.length} of ${total} leads as ${format.toUpperCase()}`, after: { ...req.query } });
   if (format === 'csv') {
     sendDownload(res, { buffer: Buffer.from(toCsv(headers, values), 'utf8'), fileName: `leads-${stamp}.csv`, mimeType: 'text/csv; charset=utf-8' });
     return;
@@ -70,35 +70,35 @@ leadsRouter.get('/export', requirePermission('leads:export'), async (req, res) =
   sendDownload(res, { buffer, fileName: `leads-${stamp}.xlsx`, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 });
 
-leadsRouter.get('/board', requirePermission('leads:read'), (req, res) => {
-  ok(res, leadBoard(parseQuery(leadListQuerySchema, req)));
+leadsRouter.get('/board', requirePermission('leads:read'), async (req, res) => {
+  ok(res, await leadBoard(parseQuery(leadListQuerySchema, req)));
 });
 
-leadsRouter.get('/duplicates', requirePermission('leads:read'), (req, res) => {
+leadsRouter.get('/duplicates', requirePermission('leads:read'), async (req, res) => {
   const query = parseQuery(duplicateQuerySchema, req);
-  ok(res, findDuplicates({ phone: query.phone, email: query.email, excludeLeadId: query.excludeId }));
+  ok(res, await findDuplicates({ phone: query.phone, email: query.email, excludeLeadId: query.excludeId }));
 });
 
-leadsRouter.get('/:id', requirePermission('leads:read'), (req, res) => {
-  ok(res, getLead(paramId(req)));
+leadsRouter.get('/:id', requirePermission('leads:read'), async (req, res) => {
+  ok(res, await getLead(paramId(req)));
 });
 
-leadsRouter.post('/assign', requirePermission('leads:assign'), (req, res) => {
-  ok(res, assignLeads(contextFrom(req), req.body));
+leadsRouter.post('/assign', requirePermission('leads:assign'), async (req, res) => {
+  ok(res, await assignLeads(contextFrom(req), req.body));
 });
 
-leadsRouter.post('/', requirePermission('leads:write'), (req, res) => {
-  created(res, createLead(contextFrom(req), req.body));
+leadsRouter.post('/', requirePermission('leads:write'), async (req, res) => {
+  created(res, await createLead(contextFrom(req), req.body));
 });
 
-leadsRouter.put('/:id', requirePermission('leads:write'), (req, res) => {
-  ok(res, updateLead(contextFrom(req), paramId(req), req.body));
+leadsRouter.put('/:id', requirePermission('leads:write'), async (req, res) => {
+  ok(res, await updateLead(contextFrom(req), paramId(req), req.body));
 });
 
-leadsRouter.post('/:id/status', requirePermission('leads:write'), (req, res) => {
-  ok(res, changeLeadStatus(contextFrom(req), paramId(req), req.body));
+leadsRouter.post('/:id/status', requirePermission('leads:write'), async (req, res) => {
+  ok(res, await changeLeadStatus(contextFrom(req), paramId(req), req.body));
 });
 
-leadsRouter.post('/:id/activities', requirePermission('leads:write'), (req, res) => {
-  ok(res, addLeadActivity(contextFrom(req), paramId(req), req.body));
+leadsRouter.post('/:id/activities', requirePermission('leads:write'), async (req, res) => {
+  ok(res, await addLeadActivity(contextFrom(req), paramId(req), req.body));
 });

@@ -32,7 +32,7 @@ interface ClientMeta {
 }
 
 export async function login(input: LoginInput, meta: ClientMeta): Promise<IssuedSession> {
-  const user = db.select().from(users).where(eq(users.email, input.email)).get();
+  const user = await db.select().from(users).where(eq(users.email, input.email)).get();
 
   if (!user) {
     await verifyAgainstDummy(input.password);
@@ -52,7 +52,7 @@ export async function login(input: LoginInput, meta: ClientMeta): Promise<Issued
   if (!valid) {
     const failures = user.failedLoginCount + 1;
     const lock = failures >= MAX_FAILED_LOGINS;
-    db.update(users)
+    await db.update(users)
       .set({
         failedLoginCount: lock ? 0 : failures,
         lockedUntil: lock ? new Date(Date.now() + LOCKOUT_MINUTES * 60_000) : user.lockedUntil,
@@ -66,19 +66,19 @@ export async function login(input: LoginInput, meta: ClientMeta): Promise<Issued
   if (!user.isActive) {
     throw new ApiError(403, 'ACCOUNT_DISABLED', 'This account has been deactivated. Contact the institute owner.');
   }
-  if (user.accountType === 'student' && studentPortalBlocked(user.id)) {
+  if (user.accountType === 'student' && await studentPortalBlocked(user.id)) {
     throw new ApiError(403, 'ACCOUNT_DISABLED', 'Your student account is not active at the moment. Please contact the institute office.');
   }
 
-  return db.transaction((tx) => {
-    const updated = tx
+  return await db.transaction(async (tx) => {
+    const updated = await tx
       .update(users)
       .set({ failedLoginCount: 0, lockedUntil: null, lastLoginAt: new Date() })
       .where(eq(users.id, user.id))
       .returning()
       .get();
-    const refresh = issueRefreshToken(tx, user.id, meta);
-    recordAudit(
+    const refresh = await issueRefreshToken(tx, user.id, meta);
+    await recordAudit(
       tx,
       { actorId: user.id, actorName: user.name, permissions: [], isOwner: false, accountType: user.accountType, ip: meta.ip },
       { action: 'login', entityType: 'user', entityId: user.id, summary: `${user.name} signed in` },
@@ -93,15 +93,15 @@ export async function withAccessToken(session: IssuedSession): Promise<IssuedSes
 }
 
 export async function refreshSession(presented: string, meta: ClientMeta): Promise<IssuedSession> {
-  const rotation = rotateRefreshToken(presented, meta);
+  const rotation = await rotateRefreshToken(presented, meta);
   if (!rotation.ok) {
     throw rotation.reason === 'reused'
       ? new ApiError(401, 'SESSION_REVOKED', 'This session was ended for your security. Please sign in again.')
       : new ApiError(401, 'SESSION_EXPIRED', 'Your session has expired. Please sign in again.');
   }
 
-  const user = db.select().from(users).where(eq(users.id, rotation.userId)).get();
-  if (!user || !user.isActive || (user.accountType === 'student' && studentPortalBlocked(user.id))) {
+  const user = await db.select().from(users).where(eq(users.id, rotation.userId)).get();
+  if (!user || !user.isActive || (user.accountType === 'student' && await studentPortalBlocked(user.id))) {
     throw new ApiError(401, 'SESSION_REVOKED', 'Your session has ended. Please sign in again.');
   }
   return {
@@ -116,7 +116,7 @@ export async function changePassword(
   input: ChangePasswordInput,
   meta: ClientMeta,
 ): Promise<IssuedSession> {
-  const user = db.select().from(users).where(eq(users.id, ctx.actorId)).get();
+  const user = await db.select().from(users).where(eq(users.id, ctx.actorId)).get();
   if (!user) throw ApiError.unauthorized();
 
   if (!(await verifyPassword(user.passwordHash, input.currentPassword))) {
@@ -125,9 +125,9 @@ export async function changePassword(
 
   const passwordHash = await hashPassword(input.newPassword);
 
-  const session = db.transaction((tx) => {
+  const session = await db.transaction(async (tx) => {
     // Bumping the token version ends every other session for this account.
-    const updated = tx
+    const updated = await tx
       .update(users)
       .set({
         passwordHash,
@@ -138,9 +138,9 @@ export async function changePassword(
       .where(eq(users.id, user.id))
       .returning()
       .get();
-    revokeAllForUser(tx, user.id);
-    const refresh = issueRefreshToken(tx, user.id, meta);
-    recordAudit(tx, ctx, {
+    await revokeAllForUser(tx, user.id);
+    const refresh = await issueRefreshToken(tx, user.id, meta);
+    await recordAudit(tx, ctx, {
       action: 'password_change',
       entityType: 'user',
       entityId: user.id,
@@ -149,5 +149,5 @@ export async function changePassword(
     return { user: updated, accessToken: '', refresh };
   });
 
-  return withAccessToken(session);
+  return await withAccessToken(session);
 }

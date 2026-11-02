@@ -11,9 +11,9 @@ import type { Admission } from '../../db/schema';
 import type { Tx } from '../../db/types';
 import type { RequestContext } from '../../utils/context';
 
-type CreatedHandler = (tx: Tx, ctx: RequestContext, admission: Admission, rawInput: unknown) => void;
-type StatusHandler = (tx: Tx, ctx: RequestContext, before: Admission, after: Admission, date: string) => void;
-type AfterCommitHandler = (event: 'created', admissionId: string) => void;
+type CreatedHandler = (tx: Tx, ctx: RequestContext, admission: Admission, rawInput: unknown) => Promise<void> | void;
+type StatusHandler = (tx: Tx, ctx: RequestContext, before: Admission, after: Admission, date: string) => Promise<void> | void;
+type AfterCommitHandler = (event: 'created', admissionId: string) => Promise<void> | void;
 
 const created: CreatedHandler[] = [];
 const status: StatusHandler[] = [];
@@ -29,17 +29,22 @@ export const admissionHooks = {
   registerAfterCommit(handler: AfterCommitHandler) {
     afterCommit.push(handler);
   },
-  onCreated(tx: Tx, ctx: RequestContext, admission: Admission, rawInput: unknown) {
-    for (const handler of created) handler(tx, ctx, admission, rawInput);
+  /** Runs each handler in turn on the caller's transaction. */
+  async onCreated(tx: Tx, ctx: RequestContext, admission: Admission, rawInput: unknown): Promise<void> {
+    for (const handler of created) await handler(tx, ctx, admission, rawInput);
   },
-  onStatusChanged(tx: Tx, ctx: RequestContext, before: Admission, after: Admission, date: string) {
-    for (const handler of status) handler(tx, ctx, before, after, date);
+  async onStatusChanged(tx: Tx, ctx: RequestContext, before: Admission, after: Admission, date: string): Promise<void> {
+    for (const handler of status) await handler(tx, ctx, before, after, date);
   },
-  /** Non-critical follow-ups (notifications). Failures are logged, never thrown. */
-  afterCommit(event: 'created', admissionId: string) {
+  /**
+   * Non-critical follow-ups (notifications). Failures are swallowed, never
+   * thrown. Awaited before the response, because a serverless function may
+   * be frozen as soon as it has answered.
+   */
+  async afterCommit(event: 'created', admissionId: string): Promise<void> {
     for (const handler of afterCommit) {
       try {
-        handler(event, admissionId);
+        await handler(event, admissionId);
       } catch {
         // Swallowed by design: the admission is already committed.
       }

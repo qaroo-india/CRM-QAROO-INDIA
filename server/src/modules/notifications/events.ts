@@ -9,10 +9,10 @@ import { admissions, courses, students } from '../../db/schema';
 import { admissionHooks } from '../admissions/hooks';
 import { notifyUsers, ownerIds, safely } from './notifications.service';
 
-admissionHooks.registerAfterCommit((event, admissionId) => {
+admissionHooks.registerAfterCommit(async (event, admissionId) => {
   if (event !== 'created') return;
-  safely('new_admission', () => {
-    const row = db
+  await safely('new_admission', async () => {
+    const row = await db
       .select({ number: admissions.admissionNumber, createdById: admissions.createdById, student: students.fullName, course: courses.name })
       .from(admissions)
       .innerJoin(students, eq(students.id, admissions.studentId))
@@ -20,8 +20,8 @@ admissionHooks.registerAfterCommit((event, admissionId) => {
       .where(eq(admissions.id, admissionId))
       .get();
     if (!row) return;
-    notifyUsers(
-      ownerIds().filter((id) => id !== row.createdById),
+    await notifyUsers(
+      (await ownerIds()).filter((id) => id !== row.createdById),
       {
         type: 'new_admission',
         severity: 'success',

@@ -56,7 +56,7 @@ const toCounts = (r: Record<string, unknown>): Counts => ({
 });
 
 /** Counts per admission, optionally limited to one batch and a date range. */
-export function countsByAdmission(filter: { batchId?: string; admissionIds?: string[]; from?: string; to?: string }): Map<string, Counts> {
+export async function countsByAdmission(filter: { batchId?: string; admissionIds?: string[]; from?: string; to?: string }): Promise<Map<string, Counts>> {
   const parts: SQL[] = [];
   if (filter.batchId) parts.push(sql` and s.batch_id = ${filter.batchId}`);
   if (filter.from) parts.push(sql` and s.date >= ${filter.from}`);
@@ -65,7 +65,7 @@ export function countsByAdmission(filter: { batchId?: string; admissionIds?: str
     if (filter.admissionIds.length === 0) return new Map();
     parts.push(sql` and ar.admission_id in (${sql.join(filter.admissionIds.map((id) => sql`${id}`), sql`, `)})`);
   }
-  const rows = db.all<Record<string, unknown> & { admissionId: string }>(sql`
+  const rows = await db.all<Record<string, unknown> & { admissionId: string }>(sql`
     select ar.admission_id as admissionId, ${COUNT_COLUMNS}
     from attendance_records ar join attendance_sessions s on s.id = ar.attendance_session_id
     where 1 = 1${sql.join(parts, sql``)}
@@ -74,8 +74,8 @@ export function countsByAdmission(filter: { batchId?: string; admissionIds?: str
 }
 
 /** Students who belonged to the batch on `date`, by assignment history. */
-function rosterFor(batchId: string, date: string) {
-  return db.all<{ admissionId: string; studentId: string; studentName: string; studentCode: string }>(sql`
+async function rosterFor(batchId: string, date: string) {
+  return await db.all<{ admissionId: string; studentId: string; studentName: string; studentCode: string }>(sql`
     select distinct ba.admission_id as admissionId, ba.student_id as studentId, s.full_name as studentName, s.student_code as studentCode
     from batch_assignments ba
     join students s on s.id = ba.student_id
@@ -85,36 +85,36 @@ function rosterFor(batchId: string, date: string) {
     order by s.full_name`);
 }
 
-function batchOrThrow(ctx: RequestContext, batchId: string) {
-  const batch = db
+async function batchOrThrow(ctx: RequestContext, batchId: string) {
+  const batch = await db
     .select({ b: batches, courseName: courses.name })
     .from(batches)
     .innerJoin(courses, eq(courses.id, batches.courseId))
     .where(eq(batches.id, batchId))
     .get();
   if (!batch) throw ApiError.notFound('Batch');
-  assertBatchInScope(ctx, batchId);
+  await assertBatchInScope(ctx, batchId);
   return batch;
 }
 
-export function getRoster(ctx: RequestContext, batchId: string, date: string): AttendanceRosterDto {
-  const { b, courseName } = batchOrThrow(ctx, batchId);
-  const session = db
+export async function getRoster(ctx: RequestContext, batchId: string, date: string): Promise<AttendanceRosterDto> {
+  const { b, courseName } = await batchOrThrow(ctx, batchId);
+  const session = await db
     .select({ s: attendanceSessions, takenByName: users.name })
     .from(attendanceSessions)
     .leftJoin(users, eq(users.id, attendanceSessions.takenById))
     .where(and(eq(attendanceSessions.batchId, batchId), eq(attendanceSessions.date, date)))
     .get();
-  const marks = session ? new Map(db.select().from(attendanceRecords).where(eq(attendanceRecords.attendanceSessionId, session.s.id)).all().map((r) => [r.admissionId, r])) : new Map();
-  const roster = rosterFor(batchId, date);
+  const marks = session ? new Map((await db.select().from(attendanceRecords).where(eq(attendanceRecords.attendanceSessionId, session.s.id)).all()).map((r) => [r.admissionId, r])) : new Map();
+  const roster = await rosterFor(batchId, date);
   // Anyone marked that day but no longer on the roster (history edited) still shows.
   for (const [admissionId, r] of marks) {
     if (!roster.some((x) => x.admissionId === admissionId)) {
-      const extra = db.get<{ studentName: string; studentCode: string }>(sql`select full_name as studentName, student_code as studentCode from students where id = ${r.studentId}`);
+      const extra = await db.get<{ studentName: string; studentCode: string }>(sql`select full_name as studentName, student_code as studentCode from students where id = ${r.studentId}`);
       roster.push({ admissionId, studentId: r.studentId, studentName: extra?.studentName ?? 'Student', studentCode: extra?.studentCode ?? '' });
     }
   }
-  const counts = countsByAdmission({ batchId, admissionIds: roster.map((r) => r.admissionId) });
+  const counts = await countsByAdmission({ batchId, admissionIds: roster.map((r) => r.admissionId) });
   const rows: AttendanceRosterRow[] = roster.map((r) => {
     const mark = marks.get(r.admissionId);
     const c = counts.get(r.admissionId);
@@ -132,16 +132,16 @@ export function getRoster(ctx: RequestContext, batchId: string, date: string): A
   };
 }
 
-export function saveAttendance(ctx: RequestContext, raw: unknown): AttendanceRosterDto {
+export async function saveAttendance(ctx: RequestContext, raw: unknown): Promise<AttendanceRosterDto> {
   const input = attendanceSaveSchema.parse(raw);
-  const { b } = batchOrThrow(ctx, input.batchId);
+  const { b } = await batchOrThrow(ctx, input.batchId);
   if (input.date > instituteToday()) throw ApiError.validation([{ path: 'date', message: 'Attendance cannot be marked for a future day' }]);
   if (input.date < b.startDate) throw ApiError.validation([{ path: 'date', message: `${b.batchCode} starts on ${b.startDate}` }]);
   if (input.classSessionId) {
-    const cs = db.select({ batchId: classSessions.batchId }).from(classSessions).where(eq(classSessions.id, input.classSessionId)).get();
+    const cs = await db.select({ batchId: classSessions.batchId }).from(classSessions).where(eq(classSessions.id, input.classSessionId)).get();
     if (!cs || cs.batchId !== b.id) throw ApiError.validation([{ path: 'classSessionId', message: 'That class is not in this batch' }]);
   }
-  const roster = new Map(rosterFor(b.id, input.date).map((r) => [r.admissionId, r]));
+  const roster = new Map((await rosterFor(b.id, input.date)).map((r) => [r.admissionId, r]));
   const outsiders = input.records.filter((r) => !roster.has(r.admissionId));
   if (outsiders.length) throw ApiError.validation([{ path: 'records', message: `${outsiders.length} of the students were not in ${b.batchCode} on ${input.date}` }]);
   const seen = new Set<string>();
@@ -150,42 +150,42 @@ export function saveAttendance(ctx: RequestContext, raw: unknown): AttendanceRos
     seen.add(r.admissionId);
   }
 
-  db.transaction((tx) => {
-    const existing = tx.select().from(attendanceSessions).where(and(eq(attendanceSessions.batchId, b.id), eq(attendanceSessions.date, input.date))).get();
+  await db.transaction(async (tx) => {
+    const existing = await tx.select().from(attendanceSessions).where(and(eq(attendanceSessions.batchId, b.id), eq(attendanceSessions.date, input.date))).get();
     const sessionId = existing
-      ? tx
+      ? (await tx
           .update(attendanceSessions)
           .set({ topic: input.topic ?? existing.topic, classSessionId: input.classSessionId ?? existing.classSessionId, takenById: ctx.actorId || null })
           .where(eq(attendanceSessions.id, existing.id))
           .returning({ id: attendanceSessions.id })
-          .get().id
-      : tx
+          .get()).id
+      : (await tx
           .insert(attendanceSessions)
           .values({ batchId: b.id, date: input.date, topic: input.topic ?? null, classSessionId: input.classSessionId ?? null, takenById: ctx.actorId || null })
           .returning({ id: attendanceSessions.id })
-          .get().id;
+          .get()).id;
     for (const r of input.records) {
       const minutesLate = r.status === 'late' ? r.minutesLate : 0;
-      tx.insert(attendanceRecords)
+      await tx.insert(attendanceRecords)
         .values({ attendanceSessionId: sessionId, admissionId: r.admissionId, studentId: roster.get(r.admissionId)!.studentId, status: r.status, minutesLate, remark: r.remark ?? null })
         .onConflictDoUpdate({ target: [attendanceRecords.attendanceSessionId, attendanceRecords.admissionId], set: { status: r.status, minutesLate, remark: r.remark ?? null, updatedAt: new Date() } })
         .run();
     }
     const tally = input.records.reduce<Record<string, number>>((acc, r) => ({ ...acc, [r.status]: (acc[r.status] ?? 0) + 1 }), {});
-    recordAudit(tx, ctx, {
+    await recordAudit(tx, ctx, {
       action: existing ? 'update' : 'create',
       entityType: 'attendance',
       entityId: sessionId,
       summary: `${existing ? 'Updated' : 'Took'} attendance for ${b.batchCode} on ${input.date}: ${Object.entries(tally).map(([k, v]) => `${v} ${k.replace('_', ' ')}`).join(', ')}`,
     });
   });
-  return getRoster(ctx, b.id, input.date);
+  return await getRoster(ctx, b.id, input.date);
 }
 
-export function listAttendanceSessions(ctx: RequestContext, q: z.output<typeof attendanceQuerySchema>): AttendanceSessionDto[] {
-  batchOrThrow(ctx, q.batchId);
+export async function listAttendanceSessions(ctx: RequestContext, q: z.output<typeof attendanceQuerySchema>): Promise<AttendanceSessionDto[]> {
+  await batchOrThrow(ctx, q.batchId);
   const range = sql.join([q.from ? sql` and s.date >= ${q.from}` : sql``, q.to ? sql` and s.date <= ${q.to}` : sql``], sql``);
-  const rows = db.all<Record<string, unknown> & { id: string; batchId: string; batchCode: string; date: string; topic: string | null; takenByName: string | null }>(sql`
+  const rows = await db.all<Record<string, unknown> & { id: string; batchId: string; batchCode: string; date: string; topic: string | null; takenByName: string | null }>(sql`
     select s.id, s.batch_id as batchId, b.batch_code as batchCode, s.date, s.topic, u.name as takenByName, ${COUNT_COLUMNS}
     from attendance_sessions s
     join batches b on b.id = s.batch_id
@@ -200,11 +200,11 @@ export function listAttendanceSessions(ctx: RequestContext, q: z.output<typeof a
   });
 }
 
-export function attendanceSummary(ctx: RequestContext, q: z.output<typeof attendanceQuerySchema>): AttendanceSummaryRow[] {
-  batchOrThrow(ctx, q.batchId);
-  const counts = countsByAdmission({ batchId: q.batchId, from: q.from, to: q.to });
+export async function attendanceSummary(ctx: RequestContext, q: z.output<typeof attendanceQuerySchema>): Promise<AttendanceSummaryRow[]> {
+  await batchOrThrow(ctx, q.batchId);
+  const counts = await countsByAdmission({ batchId: q.batchId, from: q.from, to: q.to });
   // Everyone ever assigned to the batch, plus anyone with marks in it.
-  const people = db.all<{ admissionId: string; studentId: string; studentName: string; studentCode: string }>(sql`
+  const people = await db.all<{ admissionId: string; studentId: string; studentName: string; studentCode: string }>(sql`
     select distinct a.id as admissionId, a.student_id as studentId, s.full_name as studentName, s.student_code as studentCode
     from admissions a join students s on s.id = a.student_id
     where a.id in (select admission_id from batch_assignments where batch_id = ${q.batchId})
@@ -217,6 +217,6 @@ export function attendanceSummary(ctx: RequestContext, q: z.output<typeof attend
 }
 
 /** For listing pages: batches the caller may take attendance for. */
-export function scopedBatchCondition(ctx: RequestContext) {
-  return batchScope(ctx, batches.id);
+export async function scopedBatchCondition(ctx: RequestContext) {
+  return await batchScope(ctx, batches.id);
 }

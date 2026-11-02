@@ -6,19 +6,19 @@
  */
 
 import { logger } from '../config/logger';
-import { closeDatabase, databaseLocation, db, sqlite } from './index';
+import { client, closeDatabase, databaseLocation, db } from './index';
 import { getMigrationStatus, runMigrations } from './migrator';
 
 try {
-  const before = getMigrationStatus(sqlite);
+  const before = await getMigrationStatus(client);
   logger.info(
     { database: databaseLocation, pending: before.pending },
     `Applying ${before.pending.length} pending migration(s)`,
   );
 
-  runMigrations(db);
+  await runMigrations(db);
 
-  const after = getMigrationStatus(sqlite);
+  const after = await getMigrationStatus(client);
   if (after.pending.length > 0) {
     throw new Error(`Migrations still pending after apply: ${after.pending.join(', ')}`);
   }

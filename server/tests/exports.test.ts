@@ -249,9 +249,9 @@ describe('schedules', () => {
 
 describe('notifications', () => {
   it('sweeps reminders once per day and keeps them private', async () => {
-    const first = runNotificationSweep(new Date('2026-07-01T04:00:00Z'));
+    const first = await runNotificationSweep(new Date('2026-07-01T04:00:00Z'));
     expect(first.created).toBeGreaterThan(0);
-    expect(runNotificationSweep(new Date('2026-07-01T06:00:00Z')).created).toBe(0);
+    expect((await runNotificationSweep(new Date('2026-07-01T06:00:00Z'))).created).toBe(0);
 
     const list = (await owner.get('/api/v1/notifications?unread=true&limit=100').expect(200)).body.data.items as { id: string; type: string; title: string }[];
     const overdue = list.find((n) => n.type === 'instalment_overdue')!;
@@ -332,7 +332,7 @@ describe('documents', () => {
 });
 
 describe('bulk import', () => {
-  const importClient = () => clientWith(app, { permissions: ['data:import', 'leads:write', 'leads:read', 'students:write'] });
+  const importClient = async () => await clientWith(app, { permissions: ['data:import', 'leads:write', 'leads:read', 'students:write'] });
   const csv = (rows: string[]) => Buffer.from(['Name,Phone,Email,Enquiry date,Source,Course', ...rows].join('\r\n'));
 
   it('previews with validation and duplicate flags, then imports only confirmed rows once', async () => {

@@ -123,6 +123,12 @@ permission. "Signed in" means any active user with a session.
 | GET | `/health` | Readiness: database, migrations, settings. Returns 200 when ok or degraded, 503 when the database is down. |
 | GET | `/health/live` | Liveness. Never touches the database. |
 
+### Scheduled jobs (Vercel Cron)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/cron/tick` | Runs the reminder sweep and every due report schedule once. Needs `Authorization: Bearer <CRON_SECRET>`; anything else gets 401, and without `CRON_SECRET` set it answers 503 `CRON_NOT_CONFIGURED`. Returns `{ remindersCreated, reportsRan }`; 500 if a job failed (the value is then `null`). |
+
 ### Auth
 
 | Method | Path | Access | Notes |

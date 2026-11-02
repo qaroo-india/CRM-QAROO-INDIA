@@ -1,16 +1,16 @@
 /**
  * Milestone 1 integration tests: the app boots, talks to a real SQLite
- * database (in memory), and the health endpoint reports each setup step
+ * database (a throwaway local file), and the health endpoint reports each setup step
  * truthfully as the database moves from empty -> migrated -> seeded.
  *
- * Tests in this file run in order and share one in-memory database.
+ * Tests in this file run in order and share one throwaway database.
  */
 
 import { healthResponseSchema, livenessResponseSchema } from '@ims/shared';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app';
-import { db, sqlite } from '../src/db';
+import { client, db } from '../src/db';
 import { getMigrationStatus, runMigrations } from '../src/db/migrator';
 import { seedDatabase } from '../src/db/seeders';
 import { toApiError } from '../src/middleware/errorHandler';
@@ -35,14 +35,14 @@ describe('health readiness lifecycle', () => {
     expect(dependency(res.body, 'migrations').detail).toMatch(/db:migrate/);
   });
 
-  it('applies every committed migration', () => {
-    const before = getMigrationStatus(sqlite);
+  it('applies every committed migration', async () => {
+    const before = await getMigrationStatus(client);
     expect(before.available).toBeGreaterThan(0);
     expect(before.pending.length).toBe(before.available);
 
-    runMigrations(db);
+    await runMigrations(db);
 
-    const after = getMigrationStatus(sqlite);
+    const after = await getMigrationStatus(client);
     expect(after.pending).toEqual([]);
     expect(after.applied).toBe(after.available);
   });
@@ -98,39 +98,38 @@ describe('liveness', () => {
 });
 
 describe('database integrity guarantees', () => {
-  it('enforces foreign keys', () => {
-    expect(sqlite.pragma('foreign_keys', { simple: true })).toBe(1);
+  it('enforces foreign keys', async () => {
+    const result = await client.execute('pragma foreign_keys');
+    expect(Number(result.rows[0]?.[0])).toBe(1);
   });
 
-  it('rejects a second institute settings row', () => {
-    expect(() =>
-      sqlite
-        .prepare(
-          "insert into institute_settings (id, name, timezone, currency, locale, created_at, updated_at) values ('other', 'X', 'UTC', 'INR', 'en-IN', 0, 0)",
-        )
-        .run(),
-    ).toThrow(/CHECK constraint failed/);
+  it('rejects a second institute settings row', async () => {
+    await expect(
+      client.execute(
+        "insert into institute_settings (id, name, timezone, currency, locale, created_at, updated_at) values ('other', 'X', 'UTC', 'INR', 'en-IN', 0, 0)",
+      ),
+    ).rejects.toThrow(/CHECK constraint failed/);
   });
 
-  it('rejects a role outside the shared vocabulary', () => {
-    expect(() =>
-      sqlite
-        .prepare(
-          "insert into users (id, email, name, password_hash, role, permissions, created_at, updated_at) values ('0190a0a0-0000-7000-8000-000000000001', 'a@b.com', 'A', 'h', 'superuser', '[]', 0, 0)",
-        )
-        .run(),
-    ).toThrow(/CHECK constraint failed/);
+  it('rejects a role outside the shared vocabulary', async () => {
+    await expect(
+      client.execute(
+        "insert into users (id, email, name, password_hash, role, permissions, created_at, updated_at) values ('0190a0a0-0000-7000-8000-000000000001', 'a@b.com', 'A', 'h', 'superuser', '[]', 0, 0)",
+      ),
+    ).rejects.toThrow(/CHECK constraint failed/);
   });
 
-  it('maps a real unique-constraint violation to a 409, not a 500', () => {
-    const insert = sqlite.prepare(
-      "insert into users (id, email, name, password_hash, role, permissions, created_at, updated_at) values (?, 'dup@example.com', 'A', 'h', 'staff', '[]', 0, 0)",
-    );
-    insert.run('0190a0a0-0000-7000-8000-0000000000a1');
+  it('maps a real unique-constraint violation to a 409, not a 500', async () => {
+    const insert = (id: string) =>
+      client.execute({
+        sql: "insert into users (id, email, name, password_hash, role, permissions, created_at, updated_at) values (?, 'dup@example.com', 'A', 'h', 'staff', '[]', 0, 0)",
+        args: [id],
+      });
+    await insert('0190a0a0-0000-7000-8000-0000000000a1');
 
     let thrown: unknown;
     try {
-      insert.run('0190a0a0-0000-7000-8000-0000000000a2');
+      await insert('0190a0a0-0000-7000-8000-0000000000a2');
     } catch (error) {
       thrown = error;
     }
@@ -143,18 +142,24 @@ describe('database integrity guarantees', () => {
     expect(mapped?.message).not.toMatch(/users\.email/);
   });
 
+  it('maps a hosted (Turso) constraint error, which has no extended code, by its message', () => {
+    const hosted = (message: string) => Object.assign(new Error(`SQLITE_CONSTRAINT: ${message}`), { code: 'SQLITE_CONSTRAINT' });
+    expect(toApiError(hosted('UNIQUE constraint failed: users.email'))?.status).toBe(409);
+    expect(toApiError(hosted('FOREIGN KEY constraint failed'))?.status).toBe(409);
+    expect(toApiError(hosted('CHECK constraint failed: role_check'))?.code).toBe('CONSTRAINT_VIOLATION');
+    expect(toApiError(Object.assign(new Error('SQLITE_BUSY: database is locked'), { code: 'SQLITE_BUSY', extendedCode: 'SQLITE_BUSY_SNAPSHOT' }))?.status).toBe(503);
+  });
+
   it('treats an unknown error as a bug, not a client mistake', () => {
     expect(toApiError(new Error('boom'))).toBeNull();
   });
 
-  it('rejects an email that is not normalised to lowercase', () => {
-    expect(() =>
-      sqlite
-        .prepare(
-          "insert into users (id, email, name, password_hash, role, permissions, created_at, updated_at) values ('0190a0a0-0000-7000-8000-000000000002', 'Mixed@Case.com', 'A', 'h', 'staff', '[]', 0, 0)",
-        )
-        .run(),
-    ).toThrow(/CHECK constraint failed/);
+  it('rejects an email that is not normalised to lowercase', async () => {
+    await expect(
+      client.execute(
+        "insert into users (id, email, name, password_hash, role, permissions, created_at, updated_at) values ('0190a0a0-0000-7000-8000-000000000002', 'Mixed@Case.com', 'A', 'h', 'staff', '[]', 0, 0)",
+      ),
+    ).rejects.toThrow(/CHECK constraint failed/);
   });
 });
 
@@ -231,5 +236,21 @@ describe('security headers and CORS', () => {
 
     expect(res.headers['x-request-id']).not.toContain('INJECTED');
     expect(res.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
+  });
+});
+
+describe('scheduled jobs endpoint (Vercel Cron)', () => {
+  const tick = '/api/v1/cron/tick';
+
+  it('refuses a call without the cron secret', async () => {
+    await request(app).get(tick).expect(401);
+    await request(app).get(tick).set('Authorization', 'Bearer not-the-secret').expect(401);
+    await request(app).get(tick).set('Authorization', process.env.CRON_SECRET!).expect(401);
+  });
+
+  it('runs the reminder sweep and due report schedules with it', async () => {
+    const res = await request(app).get(tick).set('Authorization', `Bearer ${process.env.CRON_SECRET}`).expect(200);
+    expect(res.body.data).toEqual({ remindersCreated: expect.any(Number), reportsRan: expect.any(Number) });
+    expect(res.headers['cache-control']).toBe('no-store');
   });
 });

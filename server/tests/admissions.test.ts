@@ -124,12 +124,12 @@ describe('lead conversion', () => {
     // The lead's counsellor carries over when none is given.
     expect(admission.counsellorId).toBe(counsellor.user.id);
 
-    const stored = db.select().from(leads).where(eq(leads.id, leadId)).get()!;
+    const stored = (await db.select().from(leads).where(eq(leads.id, leadId)).get())!;
     expect(stored.status).toBe('converted');
     expect(stored.convertedOn).toBe(TODAY);
     expect(stored.studentId).toBe(admission.studentId);
 
-    const activity = db.select().from(leadActivities).where(eq(leadActivities.leadId, leadId)).all();
+    const activity = await db.select().from(leadActivities).where(eq(leadActivities.leadId, leadId)).all();
     expect(activity.some((a) => a.type === 'conversion' && a.note?.includes(admission.admissionNumber))).toBe(true);
   });
 
@@ -155,8 +155,8 @@ describe('duplicate submissions and identities', () => {
     const first = await createAdmission({ newStudent: student }, { 'Idempotency-Key': key }).expect(201);
     const second = await createAdmission({ newStudent: student }, { 'Idempotency-Key': key }).expect(200);
     expect(second.body.data.id).toBe(first.body.data.id);
-    expect(db.select().from(admissions).where(eq(admissions.idempotencyKey, key)).all()).toHaveLength(1);
-    expect(db.select().from(students).where(eq(students.phone, student.phone)).all()).toHaveLength(1);
+    expect(await db.select().from(admissions).where(eq(admissions.idempotencyKey, key)).all()).toHaveLength(1);
+    expect(await db.select().from(students).where(eq(students.phone, student.phone)).all()).toHaveLength(1);
   });
 
   it('stops a second identity for the same person unless confirmed', async () => {
@@ -213,7 +213,7 @@ describe('admission lifecycle', () => {
       .post(`/api/v1/admissions/${id}/status`, { action: 'withdraw', date: TODAY, reason: 'Relocated', writeOffBalance: true })
       .expect(200);
     expect(res.body.data).toMatchObject({ status: 'withdrawn', outstandingMinor: 0, adjustmentsMinor: 4_500_000 });
-    const adjustment = db.select().from(feeAdjustments).where(eq(feeAdjustments.admissionId, id)).get()!;
+    const adjustment = (await db.select().from(feeAdjustments).where(eq(feeAdjustments.admissionId, id)).get())!;
     expect(adjustment).toMatchObject({ type: 'write_off', amountMinor: 4_500_000 });
   });
 

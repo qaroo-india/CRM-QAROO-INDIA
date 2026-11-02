@@ -31,18 +31,18 @@ export interface AccountLinks {
 export const PORTAL_BLOCKED_STUDENT_STATUSES: readonly string[] = ['inactive', 'suspended'];
 
 /** True when the student record behind a student login is inactive or suspended. */
-export function studentPortalBlocked(userId: string, database: DbLike = db): boolean {
-  const record = database.select({ status: students.status }).from(students).where(eq(students.userId, userId)).get();
+export async function studentPortalBlocked(userId: string, database: DbLike = db): Promise<boolean> {
+  const record = await database.select({ status: students.status }).from(students).where(eq(students.userId, userId)).get();
   return Boolean(record && PORTAL_BLOCKED_STUDENT_STATUSES.includes(record.status));
 }
 
 /** The student or trainer record a portal login belongs to. */
-export function accountLinks(user: Pick<User, 'id' | 'accountType'>, database: DbLike = db): AccountLinks {
+export async function accountLinks(user: Pick<User, 'id' | 'accountType'>, database: DbLike = db): Promise<AccountLinks> {
   if (user.accountType === 'student') {
-    return { studentId: database.select({ id: students.id }).from(students).where(eq(students.userId, user.id)).get()?.id ?? null, trainerId: null };
+    return { studentId: (await database.select({ id: students.id }).from(students).where(eq(students.userId, user.id)).get())?.id ?? null, trainerId: null };
   }
   if (user.accountType === 'faculty') {
-    return { studentId: null, trainerId: database.select({ id: trainers.id }).from(trainers).where(eq(trainers.userId, user.id)).get()?.id ?? null };
+    return { studentId: null, trainerId: (await database.select({ id: trainers.id }).from(trainers).where(eq(trainers.userId, user.id)).get())?.id ?? null };
   }
   return { studentId: null, trainerId: null };
 }
@@ -57,7 +57,8 @@ export function toPublicUser(user: User): PublicUser {
   return rest;
 }
 
-export function toSessionUser(user: User | PublicUser, links: AccountLinks = accountLinks(user)): SessionUser {
+export async function toSessionUser(user: User | PublicUser, given?: AccountLinks): Promise<SessionUser> {
+  const links = given ?? (await accountLinks(user));
   return {
     id: user.id,
     name: user.name,
@@ -75,7 +76,8 @@ export function toSessionUser(user: User | PublicUser, links: AccountLinks = acc
   };
 }
 
-export function toUserSummary(user: User | PublicUser, links: AccountLinks = accountLinks(user)): UserSummary {
+export async function toUserSummary(user: User | PublicUser, given?: AccountLinks): Promise<UserSummary> {
+  const links = given ?? (await accountLinks(user));
   return {
     id: user.id,
     name: user.name,

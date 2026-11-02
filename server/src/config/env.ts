@@ -19,6 +19,16 @@ loadDotenv({ path: resolve(process.cwd(), '.env'), quiet: true });
 
 const NODE_ENVS = ['development', 'test', 'production'] as const;
 
+/**
+ * Running as a Vercel Function. Vercel sets these itself; they are read here
+ * only to pick sensible defaults and checks for that platform.
+ */
+export const onVercel = process.env.VERCEL === '1';
+const vercelProductionUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : undefined;
+/** A Vercel Blob store is connected (OIDC on Vercel, or a read-write token). */
+const blobConnected = Boolean(process.env.BLOB_STORE_ID || process.env.BLOB_READ_WRITE_TOKEN);
+const REMOTE_DATABASE = /^(libsql|https?|wss?):\/\//i;
+
 /** Development-only placeholders. Production startup rejects both. */
 const DEV_JWT_SECRET = 'dev-only-insecure-jwt-secret-change-me-0123456789';
 const DEV_OWNER_PASSWORD = 'ChangeMe-Owner-2026';
@@ -86,14 +96,24 @@ const envSchema = z
      * Number of reverse proxies in front of the app. Must be accurate: rate
      * limiting keys on the client IP, and a wrong value either trusts spoofed
      * X-Forwarded-For headers or rate-limits every user as the proxy's IP.
+     * Vercel's edge is one hop and overwrites X-Forwarded-For, so 1 there.
      */
-    TRUST_PROXY: z.coerce.number().int().min(0).max(10).default(0),
+    TRUST_PROXY: z.coerce.number().int().min(0).max(10).default(onVercel ? 1 : 0),
 
     /**
-     * SQLite database file, relative to the server directory, or ":memory:"
-     * for an ephemeral database (used by the automated tests).
+     * The database: a local SQLite file (relative to the server directory),
+     * a hosted Turso database ("libsql://<db>.turso.io"), or ":memory:" for
+     * an ephemeral database (the automated tests). Falls back to
+     * TURSO_DATABASE_URL, the name Vercel's Turso integration sets.
      */
-    DATABASE_URL: z.string().trim().min(1).default('./data/institute.db'),
+    DATABASE_URL: z.string().trim().min(1).default(process.env.TURSO_DATABASE_URL || './data/institute.db'),
+    /** Auth token for a hosted Turso database (falls back to TURSO_AUTH_TOKEN). */
+    DATABASE_AUTH_TOKEN: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .transform((value) => value ?? (process.env.TURSO_AUTH_TOKEN || undefined)),
 
     LOG_LEVEL: z.enum(LOG_LEVELS).default('info'),
 
@@ -146,9 +166,18 @@ const envSchema = z
 
     /* ---------------- Files ---------------- */
 
-    /** Uploaded documents, relative to the server directory. */
+    /**
+     * Where uploaded and generated files live:
+     *   local -- STORAGE_DIR on this server's disk
+     *   blob  -- a private Vercel Blob store (needed on Vercel, whose disk is
+     *            read-only and temporary). Chosen automatically when a store
+     *            is connected (BLOB_STORE_ID or BLOB_READ_WRITE_TOKEN is set).
+     */
+    STORAGE_DRIVER: z.enum(['local', 'blob']).default(blobConnected ? 'blob' : 'local'),
+    /** Local storage folder, relative to the server directory. */
     STORAGE_DIR: z.string().trim().min(1).default('./storage'),
-    MAX_UPLOAD_MB: z.coerce.number().int().min(1).max(50).default(10),
+    /** Vercel Functions accept request bodies up to 4.5 MB, so 4 there. */
+    MAX_UPLOAD_MB: z.coerce.number().int().min(1).max(50).default(onVercel ? 4 : 10),
 
     /* ---------------- Email (Milestone 8) ---------------- */
 
@@ -165,14 +194,31 @@ const envSchema = z
     SMTP_PASSWORD: z.string().optional(),
     EMAIL_FROM: z.string().trim().default('Institute OS <reports@institute.local>'),
     /** Public URL of the web app, used for links inside emails. */
-    APP_URL: z.url().default('http://localhost:5173'),
+    APP_URL: z.url().default(vercelProductionUrl ?? 'http://localhost:5173'),
 
-    /** Background jobs (reminder sweep, scheduled reports). Off in tests. */
+    /**
+     * Background jobs (reminder sweep, scheduled reports) on in-process
+     * timers. Off in tests. Not used on Vercel, where Vercel Cron calls
+     * /api/v1/cron/tick instead.
+     */
     JOBS_ENABLED: booleanish.default(true),
+    /**
+     * Shared secret for /api/v1/cron/tick. Vercel Cron sends it as
+     * "Authorization: Bearer <CRON_SECRET>". Unset, the endpoint refuses
+     * every call.
+     */
+    CRON_SECRET: z.string().trim().min(16, 'must be at least 16 characters').optional(),
   })
   .superRefine((value, ctx) => {
     if (value.EMAIL_TRANSPORT === 'smtp' && !value.SMTP_HOST) {
       ctx.addIssue({ code: 'custom', path: ['SMTP_HOST'], message: 'is required when EMAIL_TRANSPORT=smtp' });
+    }
+    if (value.STORAGE_DRIVER === 'blob' && !blobConnected) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['STORAGE_DRIVER'],
+        message: 'is "blob" but no Vercel Blob store is connected (BLOB_STORE_ID or BLOB_READ_WRITE_TOKEN)',
+      });
     }
 
     if (value.NODE_ENV !== 'production') return;
@@ -204,6 +250,22 @@ const envSchema = z
         code: 'custom',
         path: ['DATABASE_URL'],
         message: 'an in-memory database would lose every record on restart in production',
+      });
+    }
+    // Vercel Functions have a temporary, read-only disk: a database file or
+    // uploads kept there would vanish (or fail) on the next invocation.
+    if (onVercel && !REMOTE_DATABASE.test(value.DATABASE_URL)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['DATABASE_URL'],
+        message: 'on Vercel, connect a hosted Turso database (libsql://...); a local file does not persist there',
+      });
+    }
+    if (onVercel && value.STORAGE_DRIVER === 'local') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['STORAGE_DRIVER'],
+        message: 'on Vercel, connect a private Vercel Blob store; the local disk is read-only',
       });
     }
     for (const origin of value.CLIENT_URL) {

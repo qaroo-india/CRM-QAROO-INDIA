@@ -53,7 +53,7 @@ export interface AccessClaims {
 }
 
 export async function signAccessToken(user: Pick<User, 'id' | 'tokenVersion'>): Promise<string> {
-  return new SignJWT({ tv: user.tokenVersion })
+  return await new SignJWT({ tv: user.tokenVersion })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(user.id)
     .setIssuer(ISSUER)
@@ -98,15 +98,15 @@ interface IssueOptions {
   ip?: string;
 }
 
-export function issueRefreshToken(
+export async function issueRefreshToken(
   database: DbLike,
   userId: string,
   options: IssueOptions = {},
-): { token: string; id: string; expiresAt: Date } {
+): Promise<{ token: string; id: string; expiresAt: Date }> {
   const token = randomBytes(32).toString('base64url');
   const id = newId();
   const expiresAt = new Date(Date.now() + env.REFRESH_TOKEN_TTL_DAYS * 86_400_000);
-  database
+  await database
     .insert(refreshTokens)
     .values({
       id,
@@ -129,20 +129,20 @@ export type RotationResult =
  * Exchange a refresh token for a new one in the same family. Runs in one
  * synchronous transaction, so two concurrent refreshes cannot both rotate.
  */
-export function rotateRefreshToken(presented: string, meta: IssueOptions = {}): RotationResult {
-  return db.transaction((tx) => {
-    const row = tx.select().from(refreshTokens).where(eq(refreshTokens.tokenHash, hashToken(presented))).get();
+export async function rotateRefreshToken(presented: string, meta: IssueOptions = {}): Promise<RotationResult> {
+  return await db.transaction(async (tx) => {
+    const row = await tx.select().from(refreshTokens).where(eq(refreshTokens.tokenHash, hashToken(presented))).get();
     if (!row) return { ok: false, reason: 'missing' } as const;
     if (row.revokedAt) return { ok: false, reason: 'revoked' } as const;
     if (row.expiresAt.getTime() <= Date.now()) return { ok: false, reason: 'expired' } as const;
 
     if (row.replacedById) {
-      const replacement = tx.select().from(refreshTokens).where(eq(refreshTokens.id, row.replacedById)).get();
+      const replacement = await tx.select().from(refreshTokens).where(eq(refreshTokens.id, row.replacedById)).get();
       const withinGrace = replacement && Date.now() - replacement.createdAt.getTime() < ROTATION_GRACE_MS;
       if (!withinGrace) {
         // A token that was already exchanged is being replayed: assume theft
         // and end every session descended from the same login.
-        tx.update(refreshTokens)
+        await tx.update(refreshTokens)
           .set({ revokedAt: new Date() })
           .where(and(eq(refreshTokens.familyId, row.familyId), isNull(refreshTokens.revokedAt)))
           .run();
@@ -150,25 +150,25 @@ export function rotateRefreshToken(presented: string, meta: IssueOptions = {}): 
       }
     }
 
-    const next = issueRefreshToken(tx, row.userId, { ...meta, familyId: row.familyId });
-    tx.update(refreshTokens).set({ replacedById: next.id }).where(eq(refreshTokens.id, row.id)).run();
+    const next = await issueRefreshToken(tx, row.userId, { ...meta, familyId: row.familyId });
+    await tx.update(refreshTokens).set({ replacedById: next.id }).where(eq(refreshTokens.id, row.id)).run();
     return { ok: true, userId: row.userId, token: next.token, expiresAt: next.expiresAt } as const;
   });
 }
 
 /** Revoke the family a presented token belongs to (logout). */
-export function revokeRefreshFamily(presented: string): void {
-  const row = db.select().from(refreshTokens).where(eq(refreshTokens.tokenHash, hashToken(presented))).get();
+export async function revokeRefreshFamily(presented: string): Promise<void> {
+  const row = await db.select().from(refreshTokens).where(eq(refreshTokens.tokenHash, hashToken(presented))).get();
   if (!row) return;
-  db.update(refreshTokens)
+  await db.update(refreshTokens)
     .set({ revokedAt: new Date() })
     .where(and(eq(refreshTokens.familyId, row.familyId), isNull(refreshTokens.revokedAt)))
     .run();
 }
 
 /** Revoke every refresh token a user holds (password change, deactivation). */
-export function revokeAllForUser(database: DbLike, userId: string): void {
-  database
+export async function revokeAllForUser(database: DbLike, userId: string): Promise<void> {
+  await database
     .update(refreshTokens)
     .set({ revokedAt: new Date() })
     .where(and(eq(refreshTokens.userId, userId), isNull(refreshTokens.revokedAt)))

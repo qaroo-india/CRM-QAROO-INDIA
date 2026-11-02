@@ -78,20 +78,20 @@ function toDto({ expense: e, categoryName, recordedByName, approvedByName }: Row
   };
 }
 
-function getExpense(id: string): ExpenseDto {
-  const row = query().where(eq(expenses.id, id)).get();
+async function getExpense(id: string): Promise<ExpenseDto> {
+  const row = await query().where(eq(expenses.id, id)).get();
   if (!row) throw ApiError.notFound('Expense');
   return toDto(row);
 }
 
-function getRow(id: string): Expense {
-  const row = db.select().from(expenses).where(eq(expenses.id, id)).get();
+async function getRow(id: string): Promise<Expense> {
+  const row = await db.select().from(expenses).where(eq(expenses.id, id)).get();
   if (!row) throw ApiError.notFound('Expense');
   return row;
 }
 
-function assertCategory(categoryId: string): void {
-  if (!db.select({ id: expenseCategories.id }).from(expenseCategories).where(eq(expenseCategories.id, categoryId)).get()) {
+async function assertCategory(categoryId: string): Promise<void> {
+  if (!await db.select({ id: expenseCategories.id }).from(expenseCategories).where(eq(expenseCategories.id, categoryId)).get()) {
     throw ApiError.validation([{ path: 'categoryId', message: 'Choose a valid category' }]);
   }
 }
@@ -113,14 +113,14 @@ function filters(q: ListQuery): SQL[] {
 
 const SORTS: Record<string, SQLWrapper> = { expenseDate: expenses.expenseDate, amount: expenses.amountMinor, createdAt: expenses.createdAt };
 
-export function listExpenses(q: ListQuery): ExpenseList {
+export async function listExpenses(q: ListQuery): Promise<ExpenseList> {
   const where = and(...filters(q));
-  const total = db.select({ n: count() }).from(expenses).where(where).get()?.n ?? 0;
+  const total = (await db.select({ n: count() }).from(expenses).where(where).get())?.n ?? 0;
   const { limit, offset } = pageWindow(q.page, q.limit);
   const sortColumn = SORTS[q.sort ?? 'expenseDate'] ?? expenses.expenseDate;
-  const rows = query().where(where).orderBy(q.order === 'asc' ? asc(sortColumn) : desc(sortColumn), desc(expenses.createdAt)).limit(limit).offset(offset).all();
+  const rows = await query().where(where).orderBy(q.order === 'asc' ? asc(sortColumn) : desc(sortColumn), desc(expenses.createdAt)).limit(limit).offset(offset).all();
 
-  const totals = db
+  const totals = (await db
     .select({
       total: sql<number>`coalesce(sum(case when ${COUNTED_EXPENSE} then ${expenses.amountMinor} else 0 end), 0)`.mapWith(Number),
       pendingCount: sql<number>`coalesce(sum(case when ${expenses.voidedAt} is null and ${expenses.approvalStatus} = 'pending' then 1 else 0 end), 0)`.mapWith(Number),
@@ -128,8 +128,8 @@ export function listExpenses(q: ListQuery): ExpenseList {
     })
     .from(expenses)
     .where(where)
-    .get()!;
-  const byCategory = db
+    .get())!;
+  const byCategory = await db
     .select({
       categoryId: expenses.categoryId,
       categoryName: expenseCategories.name,
@@ -147,37 +147,37 @@ export function listExpenses(q: ListQuery): ExpenseList {
 }
 
 /** Record an expense (also used by the demo seed). */
-export function createExpense(ctx: RequestContext, raw: unknown): ExpenseDto {
+export async function createExpense(ctx: RequestContext, raw: unknown): Promise<ExpenseDto> {
   const input = expenseSchema.parse(raw);
-  assertCategory(input.categoryId);
+  await assertCategory(input.categoryId);
   const settings = getSettings();
-  const id = db.transaction((tx) => {
-    const row = tx
+  const id = await db.transaction(async (tx) => {
+    const row = await tx
       .insert(expenses)
       .values({
         ...input,
         payee: input.payee ?? null,
         referenceNumber: input.referenceNumber ?? null,
-        expenseCode: nextCode(tx, settings.expenseCodePrefix, input.expenseDate),
+        expenseCode: await nextCode(tx, settings.expenseCodePrefix, input.expenseDate),
         approvalStatus: settings.expenseApprovalRequired ? 'pending' : 'recorded',
         recordedById: ctx.actorId || null,
       })
       .returning()
       .get();
-    recordAudit(tx, ctx, { action: 'create', entityType: 'expense', entityId: row.id, summary: `Recorded expense ${row.expenseCode}: ${formatMoney(row.amountMinor)} ${row.description}`, after: row });
+    await recordAudit(tx, ctx, { action: 'create', entityType: 'expense', entityId: row.id, summary: `Recorded expense ${row.expenseCode}: ${formatMoney(row.amountMinor)} ${row.description}`, after: row });
     return row.id;
   });
-  return getExpense(id);
+  return await getExpense(id);
 }
 
-function update(ctx: RequestContext, id: string, raw: unknown): ExpenseDto {
+async function update(ctx: RequestContext, id: string, raw: unknown): Promise<ExpenseDto> {
   const input = expenseSchema.parse(raw);
-  const existing = getRow(id);
+  const existing = await getRow(id);
   if (existing.voidedAt) throw ApiError.conflict('A voided expense cannot be edited.');
-  assertCategory(input.categoryId);
+  await assertCategory(input.categoryId);
   const needsApproval = getSettings().expenseApprovalRequired;
-  db.transaction((tx) => {
-    const updated = tx
+  await db.transaction(async (tx) => {
+    const updated = await tx
       .update(expenses)
       .set({
         ...input,
@@ -189,29 +189,29 @@ function update(ctx: RequestContext, id: string, raw: unknown): ExpenseDto {
       .where(eq(expenses.id, id))
       .returning()
       .get();
-    recordAudit(tx, ctx, { action: 'update', entityType: 'expense', entityId: id, summary: `Edited expense ${existing.expenseCode}`, ...diff(existing as unknown as Record<string, unknown>, updated as unknown as Record<string, unknown>) });
+    await recordAudit(tx, ctx, { action: 'update', entityType: 'expense', entityId: id, summary: `Edited expense ${existing.expenseCode}`, ...diff(existing as unknown as Record<string, unknown>, updated as unknown as Record<string, unknown>) });
   });
-  return getExpense(id);
+  return await getExpense(id);
 }
 
-function voidExpense(ctx: RequestContext, id: string, raw: unknown): ExpenseDto {
+async function voidExpense(ctx: RequestContext, id: string, raw: unknown): Promise<ExpenseDto> {
   const { reason } = reversalSchema.parse(raw);
-  const existing = getRow(id);
+  const existing = await getRow(id);
   if (existing.voidedAt) throw ApiError.conflict('This expense is already void.');
-  db.transaction((tx) => {
-    tx.update(expenses).set({ voidedAt: new Date(), voidedById: ctx.actorId || null, voidReason: reason }).where(eq(expenses.id, id)).run();
-    recordAudit(tx, ctx, { action: 'void', entityType: 'expense', entityId: id, summary: `Voided expense ${existing.expenseCode} (${formatMoney(existing.amountMinor)}): ${reason}` });
+  await db.transaction(async (tx) => {
+    await tx.update(expenses).set({ voidedAt: new Date(), voidedById: ctx.actorId || null, voidReason: reason }).where(eq(expenses.id, id)).run();
+    await recordAudit(tx, ctx, { action: 'void', entityType: 'expense', entityId: id, summary: `Voided expense ${existing.expenseCode} (${formatMoney(existing.amountMinor)}): ${reason}` });
   });
-  return getExpense(id);
+  return await getExpense(id);
 }
 
-function decide(ctx: RequestContext, id: string, raw: unknown): ExpenseDto {
+async function decide(ctx: RequestContext, id: string, raw: unknown): Promise<ExpenseDto> {
   const input = expenseDecisionSchema.parse(raw);
-  const existing = getRow(id);
+  const existing = await getRow(id);
   if (existing.voidedAt) throw ApiError.conflict('This expense is void.');
   if (existing.approvalStatus !== 'pending') throw ApiError.conflict(`This expense is ${existing.approvalStatus}, not pending.`);
-  db.transaction((tx) => {
-    tx.update(expenses)
+  await db.transaction(async (tx) => {
+    await tx.update(expenses)
       .set(
         input.decision === 'approve'
           ? { approvalStatus: 'approved', approvedById: ctx.actorId || null, approvedAt: new Date(), rejectionReason: null }
@@ -219,19 +219,19 @@ function decide(ctx: RequestContext, id: string, raw: unknown): ExpenseDto {
       )
       .where(eq(expenses.id, id))
       .run();
-    recordAudit(tx, ctx, {
+    await recordAudit(tx, ctx, {
       action: input.decision === 'approve' ? 'approve' : 'reject',
       entityType: 'expense',
       entityId: id,
       summary: `${input.decision === 'approve' ? 'Approved' : 'Rejected'} expense ${existing.expenseCode}${input.reason ? `: ${input.reason}` : ''}`,
     });
   });
-  return getExpense(id);
+  return await getExpense(id);
 }
 
-expensesRouter.get('/', requirePermission('expenses:read'), (req, res) => ok(res, listExpenses(parseQuery(expenseListQuerySchema, req))));
-expensesRouter.get('/:id', requirePermission('expenses:read'), (req, res) => ok(res, getExpense(paramId(req))));
-expensesRouter.post('/', requirePermission('expenses:write'), (req, res) => created(res, createExpense(contextFrom(req), req.body)));
-expensesRouter.put('/:id', requirePermission('expenses:write'), (req, res) => ok(res, update(contextFrom(req), paramId(req), req.body)));
-expensesRouter.post('/:id/void', requirePermission('expenses:write'), (req, res) => ok(res, voidExpense(contextFrom(req), paramId(req), req.body)));
-expensesRouter.post('/:id/decision', requirePermission('expenses:approve'), (req, res) => ok(res, decide(contextFrom(req), paramId(req), parseBody(expenseDecisionSchema, req))));
+expensesRouter.get('/', requirePermission('expenses:read'), async (req, res) => ok(res, await listExpenses(parseQuery(expenseListQuerySchema, req))));
+expensesRouter.get('/:id', requirePermission('expenses:read'), async (req, res) => ok(res, await getExpense(paramId(req))));
+expensesRouter.post('/', requirePermission('expenses:write'), async (req, res) => created(res, await createExpense(contextFrom(req), req.body)));
+expensesRouter.put('/:id', requirePermission('expenses:write'), async (req, res) => ok(res, await update(contextFrom(req), paramId(req), req.body)));
+expensesRouter.post('/:id/void', requirePermission('expenses:write'), async (req, res) => ok(res, await voidExpense(contextFrom(req), paramId(req), req.body)));
+expensesRouter.post('/:id/decision', requirePermission('expenses:approve'), async (req, res) => ok(res, await decide(contextFrom(req), paramId(req), parseBody(expenseDecisionSchema, req))));

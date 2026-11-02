@@ -102,7 +102,7 @@ describe('login', () => {
   it('records the sign-in in the audit trail', async () => {
     const user = await createTestUser();
     await signIn(app, user);
-    const entry = db.select().from(auditLogs).where(eq(auditLogs.entityId, user.id)).get();
+    const entry = await db.select().from(auditLogs).where(eq(auditLogs.entityId, user.id)).get();
     expect(entry).toMatchObject({ action: 'login', actorId: user.id });
   });
 });
@@ -170,7 +170,7 @@ describe('sessions', () => {
 
     await agent.post('/api/v1/auth/refresh').set('X-CSRF-Token', loginCsrf).expect(200);
     // Age the rotation beyond the concurrent-refresh grace window.
-    db.update(refreshTokens).set({ createdAt: new Date(Date.now() - 120_000) }).where(eq(refreshTokens.userId, user.id)).run();
+    await db.update(refreshTokens).set({ createdAt: new Date(Date.now() - 120_000) }).where(eq(refreshTokens.userId, user.id)).run();
 
     // The attacker replays the stolen cookie from a different client.
     const attackerCsrf = 'attacker-csrf-token-0123456789abcdef0123';
@@ -182,7 +182,7 @@ describe('sessions', () => {
     expect(replay.body.error.code).toBe('SESSION_REVOKED');
 
     // The legitimate holder's refresh token was revoked along with the family.
-    const live = db.select().from(refreshTokens).where(eq(refreshTokens.userId, user.id)).all();
+    const live = await db.select().from(refreshTokens).where(eq(refreshTokens.userId, user.id)).all();
     expect(live.every((t) => t.revokedAt !== null)).toBe(true);
     await agent.post('/api/v1/auth/refresh').set('X-CSRF-Token', loginCsrf).expect(401);
   });
@@ -191,11 +191,11 @@ describe('sessions', () => {
     const client = await clientWith(app);
     await client.post('/api/v1/auth/logout').expect(200);
     await client.post('/api/v1/auth/refresh').expect(401);
-    const revoked = db
+    const revoked = (await db
       .select()
       .from(refreshTokens)
       .where(eq(refreshTokens.userId, client.user.id))
-      .all()
+      .all())
       .filter((t) => t.revokedAt === null);
     expect(revoked).toHaveLength(0);
   });
@@ -215,7 +215,7 @@ describe('sessions', () => {
 
 describe('forced password change', () => {
   it('blocks everything except /auth until the seeded owner sets a new password', async () => {
-    const seeded = db.select().from(users).where(eq(users.email, env.OWNER_EMAIL)).get()!;
+    const seeded = (await db.select().from(users).where(eq(users.email, env.OWNER_EMAIL)).get())!;
     expect(seeded.mustChangePassword).toBe(true);
     const client = await signIn(app, seeded, env.OWNER_INITIAL_PASSWORD);
 
@@ -326,7 +326,7 @@ describe('role and permission restrictions', () => {
     const res = await client.get('/api/v1/users/options').expect(403);
     expect(res.body.error.code).toBe('PASSWORD_CHANGE_REQUIRED');
 
-    const entries = db.select().from(auditLogs).where(eq(auditLogs.entityId, staff.id)).all();
+    const entries = await db.select().from(auditLogs).where(eq(auditLogs.entityId, staff.id)).all();
     expect(entries.some((a) => a.action === 'password_change')).toBe(true);
   });
 });

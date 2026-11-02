@@ -74,51 +74,51 @@ function toDto(r: Row): CertificateDto {
   };
 }
 
-export function getCertificate(id: string): CertificateDto {
-  const row = query().where(eq(certificates.id, id)).get();
+export async function getCertificate(id: string): Promise<CertificateDto> {
+  const row = await query().where(eq(certificates.id, id)).get();
   if (!row) throw ApiError.notFound('Certificate');
   return toDto(row);
 }
 
-export function listCertificates(q: z.output<typeof certificateListQuerySchema>, studentId?: string) {
+export async function listCertificates(q: z.output<typeof certificateListQuerySchema>, studentId?: string) {
   const conditions: (SQL | undefined)[] = [];
   if (studentId) conditions.push(eq(certificates.studentId, studentId));
   if (q.q) conditions.push(or(containsText(students.fullName, q.q), containsText(students.studentCode, q.q), containsText(certificates.referenceNumber, q.q)));
   if (q.status?.length) conditions.push(inArray(certificates.status, q.status));
   if (q.courseId) conditions.push(eq(certificates.courseId, q.courseId));
   const where = and(...conditions);
-  const total = db.select({ n: count() }).from(certificates).innerJoin(students, eq(students.id, certificates.studentId)).where(where).get()?.n ?? 0;
+  const total = (await db.select({ n: count() }).from(certificates).innerJoin(students, eq(students.id, certificates.studentId)).where(where).get())?.n ?? 0;
   const { limit, offset } = pageWindow(q.page, q.limit);
-  return paginated(query().where(where).orderBy(desc(certificates.createdAt)).limit(limit).offset(offset).all().map(toDto), total, q.page, q.limit);
+  return paginated((await query().where(where).orderBy(desc(certificates.createdAt)).limit(limit).offset(offset).all()).map(toDto), total, q.page, q.limit);
 }
 
 /** A request for a completed admission. `studentId` set: the student is asking for their own. */
-export function requestCertificate(ctx: RequestContext, raw: unknown, studentId: string | null): CertificateDto {
+export async function requestCertificate(ctx: RequestContext, raw: unknown, studentId: string | null): Promise<CertificateDto> {
   const input = certificateRequestSchema.parse(raw);
-  const admission = db.select().from(admissions).where(eq(admissions.id, input.admissionId)).get();
+  const admission = await db.select().from(admissions).where(eq(admissions.id, input.admissionId)).get();
   if (!admission || (studentId && admission.studentId !== studentId)) throw ApiError.notFound('Admission');
   if (admission.status !== 'completed') throw ApiError.unprocessable('A certificate can be requested once the course is completed.', 'NOT_COMPLETED');
-  const live = db.select({ id: certificates.id, status: certificates.status }).from(certificates).where(and(eq(certificates.admissionId, admission.id), sql`${certificates.status} <> 'rejected'`)).get();
+  const live = await db.select({ id: certificates.id, status: certificates.status }).from(certificates).where(and(eq(certificates.admissionId, admission.id), sql`${certificates.status} <> 'rejected'`)).get();
   if (live) throw ApiError.conflict(`There is already a certificate for this course (${live.status.replace('_', ' ')}).`, 'ALREADY_REQUESTED');
-  const id = db.transaction((tx) => {
-    const row = tx
+  const id = await db.transaction(async (tx) => {
+    const row = await tx
       .insert(certificates)
       .values({ studentId: admission.studentId, admissionId: admission.id, courseId: admission.courseId, requestNote: input.requestNote ?? null, requestedById: ctx.actorId || null })
       .returning()
       .get();
-    recordAudit(tx, ctx, { action: 'create', entityType: 'certificate', entityId: row.id, summary: `Certificate requested for ${admission.admissionNumber}` });
+    await recordAudit(tx, ctx, { action: 'create', entityType: 'certificate', entityId: row.id, summary: `Certificate requested for ${admission.admissionNumber}` });
     return row.id;
   });
   if (studentId) {
-    safely('certificate_request', () => {
-      notifyPermission('certificates:issue', { type: 'certificate_update', title: `Certificate requested: ${admission.admissionNumber}`, link: '/certificates', entityType: 'certificate', entityId: id, dedupeKey: `certificate_requested:${id}` });
+    await safely('certificate_request', async () => {
+      await notifyPermission('certificates:issue', { type: 'certificate_update', title: `Certificate requested: ${admission.admissionNumber}`, link: '/certificates', entityType: 'certificate', entityId: id, dedupeKey: `certificate_requested:${id}` });
     });
   }
-  return getCertificate(id);
+  return await getCertificate(id);
 }
 
 export async function decideCertificate(ctx: RequestContext, id: string, raw: unknown): Promise<CertificateDto> {
-  const cert = db.select().from(certificates).where(eq(certificates.id, id)).get();
+  const cert = await db.select().from(certificates).where(eq(certificates.id, id)).get();
   if (!cert) throw ApiError.notFound('Certificate');
   const input = certificateDecisionSchema.parse(raw);
   if (!NEXT[cert.status].includes(input.status)) throw ApiError.conflict(`A certificate that is ${cert.status.replace('_', ' ')} cannot become ${input.status.replace('_', ' ')}.`, 'INVALID_TRANSITION');
@@ -127,13 +127,13 @@ export async function decideCertificate(ctx: RequestContext, id: string, raw: un
   let referenceNumber = cert.referenceNumber;
   const issuedOn = input.status === 'issued' ? (input.issuedOn ?? instituteToday()) : cert.issuedOn;
   if (input.status === 'issued') {
-    const admission = db.select().from(admissions).where(eq(admissions.id, cert.admissionId)).get()!;
+    const admission = (await db.select().from(admissions).where(eq(admissions.id, cert.admissionId)).get())!;
     if (admission.status !== 'completed') throw ApiError.unprocessable('The admission is no longer completed.', 'NOT_COMPLETED');
     if (issuedOn! < (admission.completedOn ?? admission.admissionDate)) throw ApiError.validation([{ path: 'issuedOn', message: 'Cannot be before the course was completed' }]);
     // Reserve the reference first so the PDF prints the same number that is stored.
-    referenceNumber = db.transaction((tx) => nextCode(tx, 'CERT', issuedOn!));
-    const student = db.select().from(students).where(eq(students.id, cert.studentId)).get()!;
-    const course = db.select().from(courses).where(eq(courses.id, cert.courseId)).get()!;
+    referenceNumber = await db.transaction(async (tx) => await nextCode(tx, 'CERT', issuedOn!));
+    const student = (await db.select().from(students).where(eq(students.id, cert.studentId)).get())!;
+    const course = (await db.select().from(courses).where(eq(courses.id, cert.courseId)).get())!;
     const pdf = await renderCertificatePdf(
       {
         referenceNumber,
@@ -148,22 +148,22 @@ export async function decideCertificate(ctx: RequestContext, id: string, raw: un
       toInstituteInfo(getSettings()),
     );
     fileKey = newKey('certificates', 'pdf');
-    saveFile(fileKey, pdf);
+    await saveFile(fileKey, pdf);
   }
 
-  db.transaction((tx) => {
-    tx.update(certificates)
+  await db.transaction(async (tx) => {
+    await tx.update(certificates)
       .set({ status: input.status, reviewNote: input.reviewNote ?? cert.reviewNote, reviewedById: ctx.actorId || null, reviewedAt: new Date(), referenceNumber, issuedOn, fileKey })
       .where(eq(certificates.id, id))
       .run();
-    recordAudit(tx, ctx, { action: input.status === 'rejected' ? 'reject' : input.status === 'issued' ? 'approve' : 'status_change', entityType: 'certificate', entityId: id, summary: `Certificate ${referenceNumber ?? ''}: ${cert.status} → ${input.status}${input.reviewNote ? ` (${input.reviewNote})` : ''}`.replace('  ', ' ') });
+    await recordAudit(tx, ctx, { action: input.status === 'rejected' ? 'reject' : input.status === 'issued' ? 'approve' : 'status_change', entityType: 'certificate', entityId: id, summary: `Certificate ${referenceNumber ?? ''}: ${cert.status} → ${input.status}${input.reviewNote ? ` (${input.reviewNote})` : ''}`.replace('  ', ' ') });
   });
 
-  const dto = getCertificate(id);
-  safely('certificate_update', () => {
-    const userId = db.select({ userId: students.userId }).from(students).where(eq(students.id, cert.studentId)).get()?.userId;
+  const dto = await getCertificate(id);
+  await safely('certificate_update', async () => {
+    const userId = (await db.select({ userId: students.userId }).from(students).where(eq(students.id, cert.studentId)).get())?.userId;
     if (!userId) return;
-    notifyUsers([userId], {
+    await notifyUsers([userId], {
       type: 'certificate_update',
       severity: input.status === 'rejected' ? 'warning' : input.status === 'issued' ? 'success' : 'info',
       title: input.status === 'issued' ? `Your certificate for ${dto.courseName} is ready` : `Certificate request: ${input.status.replace('_', ' ')}`,
@@ -178,19 +178,19 @@ export async function decideCertificate(ctx: RequestContext, id: string, raw: un
 }
 
 /** The PDF. `studentId` set: only their own, only once issued. */
-export function certificateFile(id: string, studentId: string | null): { buffer: Buffer; fileName: string; mimeType: string } {
-  const cert = db.select().from(certificates).where(eq(certificates.id, id)).get();
+export async function certificateFile(id: string, studentId: string | null): Promise<{ buffer: Buffer; fileName: string; mimeType: string }> {
+  const cert = await db.select().from(certificates).where(eq(certificates.id, id)).get();
   if (!cert || (studentId && cert.studentId !== studentId)) throw ApiError.notFound('Certificate');
   if (cert.status !== 'issued' || !cert.fileKey) throw ApiError.conflict('This certificate has not been issued yet.', 'NOT_ISSUED');
-  const buffer = readStoredFile(cert.fileKey);
+  const buffer = await readStoredFile(cert.fileKey);
   if (!buffer) throw ApiError.conflict('The certificate file is missing. Ask the institute to reissue it.', 'FILE_MISSING');
   return { buffer, fileName: `${cert.referenceNumber}.pdf`, mimeType: 'application/pdf' };
 }
 
 /** Public: confirm a certificate reference. Reveals only what is printed on it. */
-export function verifyCertificate(reference: string): CertificateVerification {
+export async function verifyCertificate(reference: string): Promise<CertificateVerification> {
   const ref = reference.trim().toUpperCase().slice(0, 40);
-  const row = db
+  const row = await db
     .select({ c: certificates, studentName: students.fullName, courseName: courses.name })
     .from(certificates)
     .innerJoin(students, eq(students.id, certificates.studentId))

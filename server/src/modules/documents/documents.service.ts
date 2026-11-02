@@ -94,35 +94,35 @@ function effectiveAccess(ownerType: DocumentOwnerType, kind: string, requested: 
   return requested;
 }
 
-function ownerExists(ownerType: DocumentOwnerType, ownerId: string): boolean {
+async function ownerExists(ownerType: DocumentOwnerType, ownerId: string): Promise<boolean> {
   const table = { student: students, admission: admissions, loan: loans, expense: expenses, placement_application: placementApplications }[ownerType as Exclude<DocumentOwnerType, 'institute'>];
   if (!table) return true;
-  return Boolean(db.select({ id: table.id }).from(table).where(eq(table.id, ownerId)).get());
+  return Boolean(await db.select({ id: table.id }).from(table).where(eq(table.id, ownerId)).get());
 }
 
 /** "Priya Sharma (STU-2026-00012)" etc., for lists that mix owners. */
-function ownerLabels(rows: DocumentRow[]): Map<string, string> {
+async function ownerLabels(rows: DocumentRow[]): Promise<Map<string, string>> {
   const labels = new Map<string, string>();
   const ids = (type: DocumentOwnerType) => [...new Set(rows.filter((r) => r.ownerType === type).map((r) => r.ownerId))];
   const put = (list: { id: string; label: string }[]) => list.forEach((r) => labels.set(r.id, r.label));
   const inList = (column: SQL, values: string[]) => sql`${column} in (${sql.join(values.map((v) => sql`${v}`), sql`, `)})`;
   const s = ids('student');
-  if (s.length) put(db.all<{ id: string; label: string }>(sql`select id, full_name || ' (' || student_code || ')' as label from students where ${inList(sql`id`, s)}`));
+  if (s.length) put(await db.all<{ id: string; label: string }>(sql`select id, full_name || ' (' || student_code || ')' as label from students where ${inList(sql`id`, s)}`));
   const a = ids('admission');
-  if (a.length) put(db.all<{ id: string; label: string }>(sql`select a.id, s.full_name || ' · ' || a.admission_number as label from admissions a join students s on s.id = a.student_id where ${inList(sql`a.id`, a)}`));
+  if (a.length) put(await db.all<{ id: string; label: string }>(sql`select a.id, s.full_name || ' · ' || a.admission_number as label from admissions a join students s on s.id = a.student_id where ${inList(sql`a.id`, a)}`));
   const l = ids('loan');
-  if (l.length) put(db.all<{ id: string; label: string }>(sql`select l.id, s.full_name || ' · ' || l.provider_name as label from loans l join students s on s.id = l.student_id where ${inList(sql`l.id`, l)}`));
+  if (l.length) put(await db.all<{ id: string; label: string }>(sql`select l.id, s.full_name || ' · ' || l.provider_name as label from loans l join students s on s.id = l.student_id where ${inList(sql`l.id`, l)}`));
   const e = ids('expense');
-  if (e.length) put(db.all<{ id: string; label: string }>(sql`select id, expense_code || ' · ' || description as label from expenses where ${inList(sql`id`, e)}`));
+  if (e.length) put(await db.all<{ id: string; label: string }>(sql`select id, expense_code || ' · ' || description as label from expenses where ${inList(sql`id`, e)}`));
   const p = ids('placement_application');
-  if (p.length) put(db.all<{ id: string; label: string }>(sql`select pa.id, s.full_name || ' · ' || c.name as label from placement_applications pa join students s on s.id = pa.student_id join companies c on c.id = pa.company_id where ${inList(sql`pa.id`, p)}`));
+  if (p.length) put(await db.all<{ id: string; label: string }>(sql`select pa.id, s.full_name || ' · ' || c.name as label from placement_applications pa join students s on s.id = pa.student_id join companies c on c.id = pa.company_id where ${inList(sql`pa.id`, p)}`));
   return labels;
 }
 
 const uploader = alias(users, 'uploader');
 
-function toDtos(rows: { d: DocumentRow; uploadedByName: string | null }[]): DocumentDto[] {
-  const labels = ownerLabels(rows.map((r) => r.d));
+async function toDtos(rows: { d: DocumentRow; uploadedByName: string | null }[]): Promise<DocumentDto[]> {
+  const labels = await ownerLabels(rows.map((r) => r.d));
   return rows.map(({ d, uploadedByName }) => ({
     id: d.id,
     ownerType: d.ownerType,
@@ -165,7 +165,7 @@ function visibleTo(ctx: RequestContext): SQL | undefined {
   );
 }
 
-export function listDocuments(ctx: RequestContext, q: z.output<typeof documentListQuerySchema>) {
+export async function listDocuments(ctx: RequestContext, q: z.output<typeof documentListQuerySchema>) {
   const conditions: (SQL | undefined)[] = [isNull(documents.deletedAt), visibleTo(ctx)];
   if (q.ownerType) conditions.push(eq(documents.ownerType, q.ownerType));
   if (q.ownerId) conditions.push(eq(documents.ownerId, q.ownerId));
@@ -173,9 +173,9 @@ export function listDocuments(ctx: RequestContext, q: z.output<typeof documentLi
   if (q.accessLevel) conditions.push(eq(documents.accessLevel, q.accessLevel));
   if (q.q) conditions.push(or(containsText(documents.title, q.q), containsText(documents.fileName, q.q), containsText(documents.kind, q.q)));
   const where = and(...conditions);
-  const total = db.select({ n: count() }).from(documents).where(where).get()?.n ?? 0;
+  const total = (await db.select({ n: count() }).from(documents).where(where).get())?.n ?? 0;
   const { limit, offset } = pageWindow(q.page, q.limit);
-  const rows = db
+  const rows = await db
     .select({ d: documents, uploadedByName: uploader.name })
     .from(documents)
     .leftJoin(uploader, eq(uploader.id, documents.uploadedById))
@@ -184,12 +184,12 @@ export function listDocuments(ctx: RequestContext, q: z.output<typeof documentLi
     .limit(limit)
     .offset(offset)
     .all();
-  return paginated(toDtos(rows), total, q.page, q.limit);
+  return paginated(await toDtos(rows), total, q.page, q.limit);
 }
 
 /** Documents for a student: their own plus those on their admissions and loans. */
-export function studentDocuments(ctx: RequestContext, studentId: string): DocumentDto[] {
-  const rows = db
+export async function studentDocuments(ctx: RequestContext, studentId: string): Promise<DocumentDto[]> {
+  const rows = await db
     .select({ d: documents, uploadedByName: uploader.name })
     .from(documents)
     .leftJoin(uploader, eq(uploader.id, documents.uploadedById))
@@ -207,71 +207,71 @@ export function studentDocuments(ctx: RequestContext, studentId: string): Docume
     )
     .orderBy(desc(documents.createdAt))
     .all();
-  return toDtos(rows);
+  return await toDtos(rows);
 }
 
-function getRow(ctx: RequestContext, id: string): DocumentRow {
-  const row = db.select().from(documents).where(and(eq(documents.id, id), isNull(documents.deletedAt))).get();
+async function getRow(ctx: RequestContext, id: string): Promise<DocumentRow> {
+  const row = await db.select().from(documents).where(and(eq(documents.id, id), isNull(documents.deletedAt))).get();
   // A document the user may not see is "not found": they may not know it exists.
   if (!row || !canSee(ctx, row)) throw ApiError.notFound('Document');
   return row;
 }
 
-export function getDocument(ctx: RequestContext, id: string): DocumentDto {
-  const row = getRow(ctx, id);
-  const uploadedByName = row.uploadedById ? (db.select({ name: users.name }).from(users).where(eq(users.id, row.uploadedById)).get()?.name ?? null) : null;
-  return toDtos([{ d: row, uploadedByName }])[0]!;
+export async function getDocument(ctx: RequestContext, id: string): Promise<DocumentDto> {
+  const row = await getRow(ctx, id);
+  const uploadedByName = row.uploadedById ? ((await db.select({ name: users.name }).from(users).where(eq(users.id, row.uploadedById)).get())?.name ?? null) : null;
+  return (await toDtos([{ d: row, uploadedByName }]))[0]!;
 }
 
-export function uploadDocument(ctx: RequestContext, file: UploadedFile | undefined, fields: unknown): DocumentDto {
+export async function uploadDocument(ctx: RequestContext, file: UploadedFile | undefined, fields: unknown): Promise<DocumentDto> {
   const input = documentUploadSchema.parse(fields);
   const { ext, mime } = checkFile(file);
   const ownerId = input.ownerType === 'institute' ? 'institute' : input.ownerId;
   if (!ownerId) throw ApiError.validation([{ path: 'ownerId', message: 'Choose what this document belongs to' }]);
   const ownerPermission = OWNER_READ[input.ownerType];
   if (ownerPermission && !hasPermission(ctx.permissions, ownerPermission)) throw ApiError.forbidden(`Attaching files to a ${input.ownerType.replace(/_/g, ' ')} needs access to it (${ownerPermission}).`);
-  if (!ownerExists(input.ownerType, ownerId)) throw ApiError.validation([{ path: 'ownerId', message: 'That record does not exist' }]);
+  if (!await ownerExists(input.ownerType, ownerId)) throw ApiError.validation([{ path: 'ownerId', message: 'That record does not exist' }]);
   const accessLevel = effectiveAccess(input.ownerType, input.kind, input.accessLevel);
   if (accessLevel === 'restricted' && !hasPermission(ctx.permissions, 'documents:restricted')) {
     throw ApiError.forbidden('Restricted documents (loan paperwork, identity proofs) need the restricted documents permission.');
   }
 
   const key = newKey('documents', ext);
-  saveFile(key, file!.buffer);
+  await saveFile(key, file!.buffer);
   const safeName = file!.originalname.replace(/[\\/\r\n\t"]/g, '_').slice(0, 200);
-  const id = db.transaction((tx) => {
-    const doc = tx
+  const id = await db.transaction(async (tx) => {
+    const doc = await tx
       .insert(documents)
       .values({ ownerType: input.ownerType, ownerId, kind: input.kind, title: input.title, fileName: safeName, mimeType: mime, sizeBytes: file!.size, storageKey: key, accessLevel, uploadedById: ctx.actorId })
       .returning()
       .get();
     // An expense receipt is linked to its expense for the expenses screen.
     if (input.ownerType === 'expense' && /receipt|invoice|bill/i.test(input.kind)) {
-      tx.update(expenses).set({ receiptDocumentId: doc.id }).where(eq(expenses.id, ownerId)).run();
+      await tx.update(expenses).set({ receiptDocumentId: doc.id }).where(eq(expenses.id, ownerId)).run();
     }
-    recordAudit(tx, ctx, { action: 'create', entityType: 'document', entityId: doc.id, summary: `Uploaded ${input.kind.toLowerCase()} "${input.title}" (${accessLevel}) to ${input.ownerType.replace(/_/g, ' ')}`, after: { ownerType: input.ownerType, ownerId, kind: input.kind, title: input.title, fileName: safeName, sizeBytes: file!.size, accessLevel } });
+    await recordAudit(tx, ctx, { action: 'create', entityType: 'document', entityId: doc.id, summary: `Uploaded ${input.kind.toLowerCase()} "${input.title}" (${accessLevel}) to ${input.ownerType.replace(/_/g, ' ')}`, after: { ownerType: input.ownerType, ownerId, kind: input.kind, title: input.title, fileName: safeName, sizeBytes: file!.size, accessLevel } });
     return doc.id;
   });
-  return getDocument(ctx, id);
+  return await getDocument(ctx, id);
 }
 
-export function downloadDocument(ctx: RequestContext, id: string): { buffer: Buffer; fileName: string; mimeType: string } {
-  const row = getRow(ctx, id);
-  const buffer = readStoredFile(row.storageKey);
+export async function downloadDocument(ctx: RequestContext, id: string): Promise<{ buffer: Buffer; fileName: string; mimeType: string }> {
+  const row = await getRow(ctx, id);
+  const buffer = await readStoredFile(row.storageKey);
   if (!buffer) throw ApiError.conflict('The stored file is missing. Upload it again.', 'FILE_MISSING');
   if (row.accessLevel === 'restricted') {
-    recordAudit(db, ctx, { action: 'export', entityType: 'document', entityId: row.id, summary: `Downloaded restricted document "${row.title}"` });
+    await recordAudit(db, ctx, { action: 'export', entityType: 'document', entityId: row.id, summary: `Downloaded restricted document "${row.title}"` });
   }
   return { buffer, fileName: row.fileName, mimeType: row.mimeType };
 }
 
-export function deleteDocument(ctx: RequestContext, id: string, raw: unknown): void {
+export async function deleteDocument(ctx: RequestContext, id: string, raw: unknown): Promise<void> {
   const { reason } = documentDeleteSchema.parse(raw);
-  const row = getRow(ctx, id);
-  db.transaction((tx) => {
-    tx.update(documents).set({ deletedAt: new Date(), deletedById: ctx.actorId }).where(eq(documents.id, id)).run();
-    tx.update(expenses).set({ receiptDocumentId: null }).where(eq(expenses.receiptDocumentId, id)).run();
-    recordAudit(tx, ctx, { action: 'delete', entityType: 'document', entityId: id, summary: `Removed document "${row.title}": ${reason} (file retained)`, before: { title: row.title, fileName: row.fileName, ownerType: row.ownerType, ownerId: row.ownerId } });
+  const row = await getRow(ctx, id);
+  await db.transaction(async (tx) => {
+    await tx.update(documents).set({ deletedAt: new Date(), deletedById: ctx.actorId }).where(eq(documents.id, id)).run();
+    await tx.update(expenses).set({ receiptDocumentId: null }).where(eq(expenses.receiptDocumentId, id)).run();
+    await recordAudit(tx, ctx, { action: 'delete', entityType: 'document', entityId: id, summary: `Removed document "${row.title}": ${reason} (file retained)`, before: { title: row.title, fileName: row.fileName, ownerType: row.ownerType, ownerId: row.ownerId } });
   });
 }
 

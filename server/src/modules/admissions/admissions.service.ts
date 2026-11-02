@@ -113,14 +113,14 @@ export function toAdmissionDto(row: AdmissionRow): AdmissionDto {
   };
 }
 
-export function getAdmission(id: string, database: DbLike = db): AdmissionDto {
-  const row = admissionQuery(database).where(eq(admissions.id, id)).get();
+export async function getAdmission(id: string, database: DbLike = db): Promise<AdmissionDto> {
+  const row = await admissionQuery(database).where(eq(admissions.id, id)).get();
   if (!row) throw ApiError.notFound('Admission');
   return toAdmissionDto(row);
 }
 
-export function getAdmissionRow(id: string, database: DbLike = db): Admission {
-  const row = database.select().from(admissions).where(eq(admissions.id, id)).get();
+export async function getAdmissionRow(id: string, database: DbLike = db): Promise<Admission> {
+  const row = await database.select().from(admissions).where(eq(admissions.id, id)).get();
   if (!row) throw ApiError.notFound('Admission');
   return row;
 }
@@ -165,18 +165,18 @@ const SORTS: Record<string, SQLWrapper> = {
   createdAt: admissions.createdAt,
 };
 
-export function listAdmissions(query: ListQuery) {
+export async function listAdmissions(query: ListQuery) {
   const where = and(...admissionFilters(query));
   const total =
-    db
+    (await db
       .select({ n: count() })
       .from(admissions)
       .innerJoin(students, eq(students.id, admissions.studentId))
       .where(where)
-      .get()?.n ?? 0;
+      .get())?.n ?? 0;
   const sortColumn = SORTS[query.sort ?? 'admissionDate'] ?? admissions.admissionDate;
   const { limit, offset } = pageWindow(query.page, query.limit);
-  const rows = admissionQuery()
+  const rows = await admissionQuery()
     .where(where)
     .orderBy(query.order === 'asc' ? asc(sortColumn) : desc(sortColumn), desc(admissions.id))
     .limit(limit)
@@ -195,29 +195,29 @@ export interface CreatedAdmission {
   created: boolean;
 }
 
-export function createAdmission(ctx: RequestContext, raw: unknown, idempotencyKey?: string): CreatedAdmission {
+export async function createAdmission(ctx: RequestContext, raw: unknown, idempotencyKey?: string): Promise<CreatedAdmission> {
   if (idempotencyKey) {
-    const existing = db.select({ id: admissions.id }).from(admissions).where(eq(admissions.idempotencyKey, idempotencyKey)).get();
-    if (existing) return { admission: getAdmission(existing.id), created: false };
+    const existing = await db.select({ id: admissions.id }).from(admissions).where(eq(admissions.idempotencyKey, idempotencyKey)).get();
+    if (existing) return { admission: await getAdmission(existing.id), created: false };
   }
 
   const input = admissionCreateSchema.parse(raw);
 
-  const course = db.select().from(courses).where(eq(courses.id, input.courseId)).get();
+  const course = await db.select().from(courses).where(eq(courses.id, input.courseId)).get();
   if (!course) throw ApiError.validation([{ path: 'courseId', message: 'Choose a valid course' }]);
   if (!course.isActive) throw ApiError.unprocessable(`${course.name} is not accepting admissions.`, 'COURSE_INACTIVE');
 
-  const lead = input.leadId ? db.select().from(leads).where(eq(leads.id, input.leadId)).get() : undefined;
+  const lead = input.leadId ? await db.select().from(leads).where(eq(leads.id, input.leadId)).get() : undefined;
   if (input.leadId && !lead) throw ApiError.validation([{ path: 'leadId', message: 'Lead not found' }]);
   if (lead?.status === 'converted') {
     throw ApiError.conflict('This lead has already been converted to an admission.', 'LEAD_ALREADY_CONVERTED');
   }
 
-  if (input.studentId && !db.select({ id: students.id }).from(students).where(eq(students.id, input.studentId)).get()) {
+  if (input.studentId && !await db.select({ id: students.id }).from(students).where(eq(students.id, input.studentId)).get()) {
     throw ApiError.validation([{ path: 'studentId', message: 'Student not found' }]);
   }
   if (input.newStudent && !input.allowDuplicate) {
-    const matches = findDuplicateStudents(input.newStudent.phone, input.newStudent.email);
+    const matches = await findDuplicateStudents(input.newStudent.phone, input.newStudent.email);
     if (matches.length > 0) {
       throw ApiError.conflict(
         'A student with this phone or email already exists. Choose the existing student, or confirm this is a different person.',
@@ -228,20 +228,20 @@ export function createAdmission(ctx: RequestContext, raw: unknown, idempotencyKe
   }
 
   const counsellorId = input.counsellorId ?? lead?.counsellorId ?? null;
-  if (counsellorId && !db.select({ id: users.id }).from(users).where(eq(users.id, counsellorId)).get()) {
+  if (counsellorId && !await db.select({ id: users.id }).from(users).where(eq(users.id, counsellorId)).get()) {
     throw ApiError.validation([{ path: 'counsellorId', message: 'Choose a valid counsellor' }]);
   }
 
   const settings = getSettings();
 
-  const id = db.transaction((tx) => {
+  const id = await db.transaction(async (tx) => {
     let studentId = input.studentId;
     if (input.newStudent) {
       const s = input.newStudent;
-      const student = tx
+      const student = await tx
         .insert(students)
         .values({
-          studentCode: nextCode(tx, settings.studentCodePrefix, input.admissionDate),
+          studentCode: await nextCode(tx, settings.studentCodePrefix, input.admissionDate),
           fullName: s.fullName,
           phone: s.phone,
           phoneNormalized: normalisePhone(s.phone),
@@ -257,11 +257,11 @@ export function createAdmission(ctx: RequestContext, raw: unknown, idempotencyKe
         .returning()
         .get();
       studentId = student.id;
-      recordAudit(tx, ctx, { action: 'create', entityType: 'student', entityId: student.id, summary: `Registered student ${student.studentCode} ${student.fullName}`, after: student });
+      await recordAudit(tx, ctx, { action: 'create', entityType: 'student', entityId: student.id, summary: `Registered student ${student.studentCode} ${student.fullName}`, after: student });
     }
 
-    const admissionNumber = nextCode(tx, settings.admissionNumberPrefix, input.admissionDate);
-    const admission = tx
+    const admissionNumber = await nextCode(tx, settings.admissionNumberPrefix, input.admissionDate);
+    const admission = await tx
       .insert(admissions)
       .values({
         admissionNumber,
@@ -288,9 +288,9 @@ export function createAdmission(ctx: RequestContext, raw: unknown, idempotencyKe
       .returning()
       .get();
 
-    if (lead) markLeadConverted(tx, ctx, lead, studentId!, input.admissionDate, admissionNumber);
+    if (lead) await markLeadConverted(tx, ctx, lead, studentId!, input.admissionDate, admissionNumber);
 
-    recordAudit(tx, ctx, {
+    await recordAudit(tx, ctx, {
       action: 'create',
       entityType: 'admission',
       entityId: admission.id,
@@ -298,26 +298,26 @@ export function createAdmission(ctx: RequestContext, raw: unknown, idempotencyKe
       after: admission,
     });
 
-    admissionHooks.onCreated(tx, ctx, admission, raw);
+    await admissionHooks.onCreated(tx, ctx, admission, raw);
     return admission.id;
   });
 
-  admissionHooks.afterCommit('created', id);
-  return { admission: getAdmission(id), created: true };
+  await admissionHooks.afterCommit('created', id);
+  return { admission: await getAdmission(id), created: true };
 }
 
 /* ------------------------------------------------------------------ *
  * Update and lifecycle
  * ------------------------------------------------------------------ */
 
-export function updateAdmission(ctx: RequestContext, id: string, raw: unknown): AdmissionDto {
+export async function updateAdmission(ctx: RequestContext, id: string, raw: unknown): Promise<AdmissionDto> {
   const input = admissionUpdateSchema.parse(raw);
-  const existing = getAdmissionRow(id);
-  if (input.counsellorId && !db.select({ id: users.id }).from(users).where(eq(users.id, input.counsellorId)).get()) {
+  const existing = await getAdmissionRow(id);
+  if (input.counsellorId && !await db.select({ id: users.id }).from(users).where(eq(users.id, input.counsellorId)).get()) {
     throw ApiError.validation([{ path: 'counsellorId', message: 'Choose a valid counsellor' }]);
   }
-  db.transaction((tx) => {
-    const updated = tx
+  await db.transaction(async (tx) => {
+    const updated = await tx
       .update(admissions)
       .set({
         ...(input.counsellorId !== undefined && { counsellorId: input.counsellorId ?? null }),
@@ -326,7 +326,7 @@ export function updateAdmission(ctx: RequestContext, id: string, raw: unknown): 
       .where(eq(admissions.id, id))
       .returning()
       .get();
-    recordAudit(tx, ctx, {
+    await recordAudit(tx, ctx, {
       action: 'update',
       entityType: 'admission',
       entityId: id,
@@ -334,7 +334,7 @@ export function updateAdmission(ctx: RequestContext, id: string, raw: unknown): 
       ...diff(existing as unknown as Record<string, unknown>, updated as unknown as Record<string, unknown>),
     });
   });
-  return getAdmission(id);
+  return await getAdmission(id);
 }
 
 const ALLOWED_FROM: Record<string, readonly Admission['status'][]> = {
@@ -344,10 +344,10 @@ const ALLOWED_FROM: Record<string, readonly Admission['status'][]> = {
   cancel: ['pending_payment', 'active'],
 };
 
-export function changeAdmissionStatus(ctx: RequestContext, id: string, raw: unknown): AdmissionDto {
+export async function changeAdmissionStatus(ctx: RequestContext, id: string, raw: unknown): Promise<AdmissionDto> {
   const input = admissionStatusChangeSchema.parse(raw);
-  const existing = getAdmissionRow(id);
-  const current = getAdmission(id);
+  const existing = await getAdmissionRow(id);
+  const current = await getAdmission(id);
 
   if (!ALLOWED_FROM[input.action]!.includes(existing.status)) {
     throw ApiError.conflict(`An admission that is ${existing.status.replace(/_/g, ' ')} cannot be moved with "${input.action}".`, 'INVALID_TRANSITION');
@@ -362,17 +362,17 @@ export function changeAdmissionStatus(ctx: RequestContext, id: string, raw: unkn
     );
   }
 
-  db.transaction((tx) => {
+  await db.transaction(async (tx) => {
     const changes: Partial<Admission> = {};
     if (input.action === 'activate') Object.assign(changes, { status: 'active', activatedOn: input.date });
     if (input.action === 'complete') Object.assign(changes, { status: 'completed', completedOn: input.date, batchStatus: 'completed' });
     if (input.action === 'withdraw') Object.assign(changes, { status: 'withdrawn', withdrawnOn: input.date, statusReason: input.reason });
     if (input.action === 'cancel') Object.assign(changes, { status: 'cancelled', cancelledOn: input.date, statusReason: input.reason });
 
-    const updated = tx.update(admissions).set(changes).where(eq(admissions.id, id)).returning().get();
+    const updated = await tx.update(admissions).set(changes).where(eq(admissions.id, id)).returning().get();
 
     if (input.action === 'withdraw' && input.writeOffBalance && current.outstandingMinor > 0) {
-      tx.insert(feeAdjustments)
+      await tx.insert(feeAdjustments)
         .values({
           admissionId: id,
           type: 'write_off',
@@ -385,7 +385,7 @@ export function changeAdmissionStatus(ctx: RequestContext, id: string, raw: unkn
         .run();
     }
 
-    recordAudit(tx, ctx, {
+    await recordAudit(tx, ctx, {
       action: 'status_change',
       entityType: 'admission',
       entityId: id,
@@ -394,20 +394,20 @@ export function changeAdmissionStatus(ctx: RequestContext, id: string, raw: unkn
       after: { status: updated.status, date: input.date, writeOff: input.writeOffBalance ? current.outstandingMinor : 0 },
     });
 
-    admissionHooks.onStatusChanged(tx, ctx, existing, updated, input.date);
+    await admissionHooks.onStatusChanged(tx, ctx, existing, updated, input.date);
   });
 
-  return getAdmission(id);
+  return await getAdmission(id);
 }
 
 /** Activate a pending admission once its admission fee is covered (called by payments). */
-export function activateIfFeeCovered(tx: Tx, ctx: RequestContext, admissionId: string, paymentDate: string): void {
-  const admission = getAdmissionRow(admissionId, tx);
+export async function activateIfFeeCovered(tx: Tx, ctx: RequestContext, admissionId: string, paymentDate: string): Promise<void> {
+  const admission = await getAdmissionRow(admissionId, tx);
   if (admission.status !== 'pending_payment') return;
-  const finance = getAdmission(admissionId, tx);
+  const finance = await getAdmission(admissionId, tx);
   if (finance.netPaidMinor >= admission.admissionFeeRequiredMinor) {
-    tx.update(admissions).set({ status: 'active', activatedOn: paymentDate }).where(eq(admissions.id, admissionId)).run();
-    recordAudit(tx, ctx, {
+    await tx.update(admissions).set({ status: 'active', activatedOn: paymentDate }).where(eq(admissions.id, admissionId)).run();
+    await recordAudit(tx, ctx, {
       action: 'status_change',
       entityType: 'admission',
       entityId: admissionId,

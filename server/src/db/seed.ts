@@ -6,12 +6,12 @@
 
 import { env, usingDevOwnerPassword } from '../config/env';
 import { logger } from '../config/logger';
-import { closeDatabase, databaseLocation, db, sqlite } from './index';
+import { client, closeDatabase, databaseLocation, db } from './index';
 import { getMigrationStatus } from './migrator';
 import { seedDatabase } from './seeders';
 
 async function main(): Promise<void> {
-  const status = getMigrationStatus(sqlite);
+  const status = await getMigrationStatus(client);
   if (status.applied === 0 || status.pending.length > 0) {
     throw new Error(
       `Database schema is not up to date (${status.pending.length} pending). ` + 'Run "npm run db:migrate" first.',
@@ -41,7 +41,7 @@ async function main(): Promise<void> {
   logger.info({ database: databaseLocation }, 'Seeding complete');
 }
 
-main()
+await main()
   .catch((error) => {
     logger.error({ err: error }, 'Seeding failed');
     process.exitCode = 1;

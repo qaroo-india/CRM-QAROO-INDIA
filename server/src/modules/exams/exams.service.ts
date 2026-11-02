@@ -66,7 +66,7 @@ function examQuery() {
 
 type ExamRow = Awaited<ReturnType<ReturnType<typeof examQuery>['all']>>[number];
 
-function toExamDto(r: ExamRow): ExamDto {
+async function toExamDto(r: ExamRow): Promise<ExamDto> {
   const e = r.e;
   const live = e.status === 'draft' ? null : e.totalMarks;
   return {
@@ -86,7 +86,7 @@ function toExamDto(r: ExamRow): ExamDto {
     availableFrom: e.availableFrom?.toISOString() ?? null,
     availableUntil: e.availableUntil?.toISOString() ?? null,
     shuffleQuestions: e.shuffleQuestions,
-    totalMarks: live ?? draftMarks(e.id),
+    totalMarks: live ?? await draftMarks(e.id),
     questionCount: r.questionCount,
     publishedAt: e.publishedAt?.toISOString() ?? null,
     submissions: r.submissions,
@@ -96,48 +96,48 @@ function toExamDto(r: ExamRow): ExamDto {
   };
 }
 
-function draftMarks(examId: string): number {
-  return Number(db.get<{ n: number }>(sql`select coalesce(sum(marks), 0) as n from exam_questions where exam_id = ${examId} and is_active = 1`)?.n ?? 0);
+async function draftMarks(examId: string): Promise<number> {
+  return Number((await db.get<{ n: number }>(sql`select coalesce(sum(marks), 0) as n from exam_questions where exam_id = ${examId} and is_active = 1`))?.n ?? 0);
 }
 
 /** Faculty: exams for their batches, plus course-wide exams of the courses they teach. */
-function examScope(ctx: RequestContext): SQL | undefined {
-  const ids = facultyBatchIds(ctx);
+async function examScope(ctx: RequestContext): Promise<SQL | undefined> {
+  const ids = await facultyBatchIds(ctx);
   if (ids === null) return undefined;
   if (ids.length === 0) return sql`0`;
-  const courseIds = db.select({ courseId: batches.courseId }).from(batches).where(inArray(batches.id, ids)).all().map((b) => b.courseId);
+  const courseIds = (await db.select({ courseId: batches.courseId }).from(batches).where(inArray(batches.id, ids)).all()).map((b) => b.courseId);
   return or(inArray(exams.batchId, ids), inArray(exams.courseId, courseIds));
 }
 
-function examForStaff(ctx: RequestContext, id: string, forWrite = false): Exam {
-  const exam = db.select().from(exams).where(and(eq(exams.id, id), examScope(ctx))).get();
+async function examForStaff(ctx: RequestContext, id: string, forWrite = false): Promise<Exam> {
+  const exam = await db.select().from(exams).where(and(eq(exams.id, id), await examScope(ctx))).get();
   if (!exam) throw ApiError.notFound('Exam');
   // Faculty may change only their batch exams, or course-wide exams they wrote.
   if (forWrite && ctx.accountType === 'faculty' && !exam.batchId && exam.authorId !== ctx.actorId) throw ApiError.forbidden('Only the author can change a course-wide exam.');
   return exam;
 }
 
-export function listExams(ctx: RequestContext, q: z.output<typeof examListQuerySchema>) {
-  const conditions: (SQL | undefined)[] = [examScope(ctx)];
+export async function listExams(ctx: RequestContext, q: z.output<typeof examListQuerySchema>) {
+  const conditions: (SQL | undefined)[] = [await examScope(ctx)];
   if (q.q) conditions.push(containsText(exams.title, q.q));
   if (q.batchId) conditions.push(eq(exams.batchId, q.batchId));
   if (q.courseId) conditions.push(or(eq(exams.courseId, q.courseId), eq(batches.courseId, q.courseId)));
   if (q.kind) conditions.push(eq(exams.kind, q.kind));
   if (q.status?.length) conditions.push(inArray(exams.status, q.status));
   const where = and(...conditions);
-  const total = db.select({ n: count() }).from(exams).leftJoin(batches, eq(batches.id, exams.batchId)).where(where).get()?.n ?? 0;
+  const total = (await db.select({ n: count() }).from(exams).leftJoin(batches, eq(batches.id, exams.batchId)).where(where).get())?.n ?? 0;
   const { limit, offset } = pageWindow(q.page, q.limit);
-  const rows = examQuery().where(where).orderBy(desc(exams.createdAt)).limit(limit).offset(offset).all();
-  return paginated(rows.map(toExamDto), total, q.page, q.limit);
+  const rows = await examQuery().where(where).orderBy(desc(exams.createdAt)).limit(limit).offset(offset).all();
+  return paginated((await Promise.all(rows.map(toExamDto))), total, q.page, q.limit);
 }
 
-export function getExam(ctx: RequestContext, id: string): ExamDetail {
-  examForStaff(ctx, id);
-  const row = examQuery().where(eq(exams.id, id)).get()!;
-  const questions = db.select().from(examQuestions).where(eq(examQuestions.examId, id)).orderBy(asc(examQuestions.position), asc(examQuestions.createdAt)).all();
-  const options = questions.length ? db.select().from(examOptions).where(inArray(examOptions.questionId, questions.map((q) => q.id))).orderBy(asc(examOptions.position)).all() : [];
+export async function getExam(ctx: RequestContext, id: string): Promise<ExamDetail> {
+  await examForStaff(ctx, id);
+  const row = (await examQuery().where(eq(exams.id, id)).get())!;
+  const questions = await db.select().from(examQuestions).where(eq(examQuestions.examId, id)).orderBy(asc(examQuestions.position), asc(examQuestions.createdAt)).all();
+  const options = questions.length ? await db.select().from(examOptions).where(inArray(examOptions.questionId, questions.map((q) => q.id))).orderBy(asc(examOptions.position)).all() : [];
   return {
-    ...toExamDto(row),
+    ...await toExamDto(row),
     questions: questions.map((q) => ({
       id: q.id,
       position: q.position,
@@ -153,26 +153,26 @@ export function getExam(ctx: RequestContext, id: string): ExamDetail {
  * Staff: authoring
  * ------------------------------------------------------------------ */
 
-function assertTarget(ctx: RequestContext, batchId: string | undefined, courseId: string | undefined): void {
+async function assertTarget(ctx: RequestContext, batchId: string | undefined, courseId: string | undefined): Promise<void> {
   if (batchId) {
-    if (!db.select({ id: batches.id }).from(batches).where(eq(batches.id, batchId)).get()) throw ApiError.validation([{ path: 'batchId', message: 'Choose a valid batch' }]);
-    const ids = facultyBatchIds(ctx);
+    if (!await db.select({ id: batches.id }).from(batches).where(eq(batches.id, batchId)).get()) throw ApiError.validation([{ path: 'batchId', message: 'Choose a valid batch' }]);
+    const ids = await facultyBatchIds(ctx);
     if (ids && !ids.includes(batchId)) throw ApiError.forbidden('You can only set exams for your own batches.');
   }
   if (courseId) {
-    if (!db.select({ id: courses.id }).from(courses).where(eq(courses.id, courseId)).get()) throw ApiError.validation([{ path: 'courseId', message: 'Choose a valid course' }]);
-    const ids = facultyBatchIds(ctx);
-    if (ids && !db.select({ id: batches.id }).from(batches).where(and(eq(batches.courseId, courseId), inArray(batches.id, ids.length ? ids : ['-']))).get()) {
+    if (!await db.select({ id: courses.id }).from(courses).where(eq(courses.id, courseId)).get()) throw ApiError.validation([{ path: 'courseId', message: 'Choose a valid course' }]);
+    const ids = await facultyBatchIds(ctx);
+    if (ids && !await db.select({ id: batches.id }).from(batches).where(and(eq(batches.courseId, courseId), inArray(batches.id, ids.length ? ids : ['-']))).get()) {
       throw ApiError.forbidden('You can only set exams for courses you teach.');
     }
   }
 }
 
-export function createExam(ctx: RequestContext, raw: unknown): ExamDetail {
+export async function createExam(ctx: RequestContext, raw: unknown): Promise<ExamDetail> {
   const input = examSchema.parse(raw);
-  assertTarget(ctx, input.batchId, input.courseId);
-  const id = db.transaction((tx) => {
-    const row = tx
+  await assertTarget(ctx, input.batchId, input.courseId);
+  const id = await db.transaction(async (tx) => {
+    const row = await tx
       .insert(exams)
       .values({
         title: input.title,
@@ -190,18 +190,18 @@ export function createExam(ctx: RequestContext, raw: unknown): ExamDetail {
       })
       .returning()
       .get();
-    recordAudit(tx, ctx, { action: 'create', entityType: 'exam', entityId: row.id, summary: `Created exam "${row.title}"` });
+    await recordAudit(tx, ctx, { action: 'create', entityType: 'exam', entityId: row.id, summary: `Created exam "${row.title}"` });
     return row.id;
   });
-  return getExam(ctx, id);
+  return await getExam(ctx, id);
 }
 
-function attemptsExist(examId: string): boolean {
-  return Boolean(db.select({ id: examAttempts.id }).from(examAttempts).where(eq(examAttempts.examId, examId)).get());
+async function attemptsExist(examId: string): Promise<boolean> {
+  return Boolean(await db.select({ id: examAttempts.id }).from(examAttempts).where(eq(examAttempts.examId, examId)).get());
 }
 
-export function updateExam(ctx: RequestContext, id: string, raw: unknown): ExamDetail {
-  const exam = examForStaff(ctx, id, true);
+export async function updateExam(ctx: RequestContext, id: string, raw: unknown): Promise<ExamDetail> {
+  const exam = await examForStaff(ctx, id, true);
   const input = examSchema.parse(raw);
   if (exam.status !== 'draft') {
     // Once published only the window and instructions may move: the paper itself is frozen.
@@ -209,9 +209,9 @@ export function updateExam(ctx: RequestContext, id: string, raw: unknown): ExamD
     const before: Record<string, unknown> = { kind: exam.kind, batchId: exam.batchId ?? undefined, courseId: exam.courseId ?? undefined, durationMinutes: exam.durationMinutes, passPercent: exam.passPercent, maxAttempts: exam.maxAttempts, shuffleQuestions: exam.shuffleQuestions };
     if (frozen.some((k) => (input[k] ?? undefined) !== before[k])) throw ApiError.conflict('A published exam can only change its title, instructions and opening times. Move it back to draft (if nobody has attempted it) to change the rest.', 'EXAM_FROZEN');
   }
-  assertTarget(ctx, input.batchId, input.courseId);
-  db.transaction((tx) => {
-    tx.update(exams)
+  await assertTarget(ctx, input.batchId, input.courseId);
+  await db.transaction(async (tx) => {
+    await tx.update(exams)
       .set({
         title: input.title,
         kind: input.kind,
@@ -227,80 +227,84 @@ export function updateExam(ctx: RequestContext, id: string, raw: unknown): ExamD
       })
       .where(eq(exams.id, id))
       .run();
-    recordAudit(tx, ctx, { action: 'update', entityType: 'exam', entityId: id, summary: `Updated exam "${input.title}"` });
+    await recordAudit(tx, ctx, { action: 'update', entityType: 'exam', entityId: id, summary: `Updated exam "${input.title}"` });
   });
-  return getExam(ctx, id);
+  return await getExam(ctx, id);
 }
 
 function assertDraft(exam: Exam): void {
   if (exam.status !== 'draft') throw ApiError.conflict('Questions can only be changed while the exam is a draft.', 'EXAM_FROZEN');
 }
 
-export function addQuestion(ctx: RequestContext, examId: string, raw: unknown): ExamDetail {
-  const exam = examForStaff(ctx, examId, true);
+export async function addQuestion(ctx: RequestContext, examId: string, raw: unknown): Promise<ExamDetail> {
+  const exam = await examForStaff(ctx, examId, true);
   assertDraft(exam);
   const input = examQuestionSchema.parse(raw);
-  const position = Number(db.get<{ n: number }>(sql`select coalesce(max(position), 0) + 1 as n from exam_questions where exam_id = ${examId}`)?.n ?? 1);
-  db.transaction((tx) => {
-    const q = tx.insert(examQuestions).values({ examId, position, text: input.text, marks: input.marks }).returning().get();
-    input.options.forEach((o, i) => tx.insert(examOptions).values({ questionId: q.id, position: i + 1, text: o.text, isCorrect: o.isCorrect }).run());
+  const position = Number((await db.get<{ n: number }>(sql`select coalesce(max(position), 0) + 1 as n from exam_questions where exam_id = ${examId}`))?.n ?? 1);
+  await db.transaction(async (tx) => {
+    const q = await tx.insert(examQuestions).values({ examId, position, text: input.text, marks: input.marks }).returning().get();
+    for (const [i, o] of input.options.entries()) {
+      await tx.insert(examOptions).values({ questionId: q.id, position: i + 1, text: o.text, isCorrect: o.isCorrect }).run();
+    }
   });
-  return getExam(ctx, examId);
+  return await getExam(ctx, examId);
 }
 
-function questionForStaff(ctx: RequestContext, questionId: string) {
-  const q = db.select().from(examQuestions).where(eq(examQuestions.id, questionId)).get();
+async function questionForStaff(ctx: RequestContext, questionId: string) {
+  const q = await db.select().from(examQuestions).where(eq(examQuestions.id, questionId)).get();
   if (!q) throw ApiError.notFound('Question');
-  const exam = examForStaff(ctx, q.examId, true);
+  const exam = await examForStaff(ctx, q.examId, true);
   assertDraft(exam);
   return q;
 }
 
-export function updateQuestion(ctx: RequestContext, questionId: string, raw: unknown): ExamDetail {
-  const q = questionForStaff(ctx, questionId);
+export async function updateQuestion(ctx: RequestContext, questionId: string, raw: unknown): Promise<ExamDetail> {
+  const q = await questionForStaff(ctx, questionId);
   const input = examQuestionSchema.parse(raw);
-  db.transaction((tx) => {
-    tx.update(examQuestions).set({ text: input.text, marks: input.marks }).where(eq(examQuestions.id, q.id)).run();
+  await db.transaction(async (tx) => {
+    await tx.update(examQuestions).set({ text: input.text, marks: input.marks }).where(eq(examQuestions.id, q.id)).run();
     // A draft has no attempts, so its options can be replaced outright.
-    tx.delete(examOptions).where(eq(examOptions.questionId, q.id)).run();
-    input.options.forEach((o, i) => tx.insert(examOptions).values({ questionId: q.id, position: i + 1, text: o.text, isCorrect: o.isCorrect }).run());
+    await tx.delete(examOptions).where(eq(examOptions.questionId, q.id)).run();
+    for (const [i, o] of input.options.entries()) {
+      await tx.insert(examOptions).values({ questionId: q.id, position: i + 1, text: o.text, isCorrect: o.isCorrect }).run();
+    }
   });
-  return getExam(ctx, q.examId);
+  return await getExam(ctx, q.examId);
 }
 
-export function removeQuestion(ctx: RequestContext, questionId: string): ExamDetail {
-  const q = questionForStaff(ctx, questionId);
-  db.transaction((tx) => {
-    tx.delete(examOptions).where(eq(examOptions.questionId, q.id)).run();
-    tx.delete(examQuestions).where(eq(examQuestions.id, q.id)).run();
+export async function removeQuestion(ctx: RequestContext, questionId: string): Promise<ExamDetail> {
+  const q = await questionForStaff(ctx, questionId);
+  await db.transaction(async (tx) => {
+    await tx.delete(examOptions).where(eq(examOptions.questionId, q.id)).run();
+    await tx.delete(examQuestions).where(eq(examQuestions.id, q.id)).run();
   });
-  return getExam(ctx, q.examId);
+  return await getExam(ctx, q.examId);
 }
 
 /** Students (with a portal login) an exam is for. */
-function examAudience(exam: Pick<Exam, 'batchId' | 'courseId'>): string[] {
+async function examAudience(exam: Pick<Exam, 'batchId' | 'courseId'>): Promise<string[]> {
   const who = exam.batchId
     ? sql`${students.id} in (select ba.student_id from batch_assignments ba where ba.batch_id = ${exam.batchId} and ba.status = 'active')`
     : sql`${students.id} in (select a.student_id from admissions a where a.course_id = ${exam.courseId} and a.status in ('pending_payment', 'active'))`;
-  return db
+  return (await db
     .select({ userId: students.userId })
     .from(students)
     .innerJoin(users, eq(users.id, students.userId))
     .where(and(eq(users.isActive, true), who))
-    .all()
+    .all())
     .map((r) => r.userId!)
     .filter(Boolean);
 }
 
-export function setExamStatus(ctx: RequestContext, id: string, raw: unknown): ExamDetail {
-  const exam = examForStaff(ctx, id, true);
+export async function setExamStatus(ctx: RequestContext, id: string, raw: unknown): Promise<ExamDetail> {
+  const exam = await examForStaff(ctx, id, true);
   const { status } = examStatusSchema.parse(raw);
-  if (status === exam.status) return getExam(ctx, id);
+  if (status === exam.status) return await getExam(ctx, id);
 
   let totalMarks = exam.totalMarks;
   if (status === 'published') {
     if (exam.status === 'archived') throw ApiError.conflict('An archived exam cannot be reopened.', 'INVALID_TRANSITION');
-    const detail = getExam(ctx, id);
+    const detail = await getExam(ctx, id);
     const active = detail.questions.filter((q) => q.isActive);
     if (active.length === 0) throw ApiError.unprocessable('Add at least one question before publishing.', 'NO_QUESTIONS');
     const broken = active.find((q) => q.options.length < 2 || q.options.filter((o) => o.isCorrect).length !== 1);
@@ -308,33 +312,33 @@ export function setExamStatus(ctx: RequestContext, id: string, raw: unknown): Ex
     if (exam.availableUntil && exam.availableUntil.getTime() <= Date.now()) throw ApiError.unprocessable('The closing time has already passed. Move it later before publishing.', 'WINDOW_PASSED');
     totalMarks = active.reduce((s, q) => s + q.marks, 0);
   }
-  if (status === 'draft' && attemptsExist(id)) throw ApiError.conflict('Students have already attempted this exam, so it cannot go back to draft. Close it instead.', 'HAS_ATTEMPTS');
+  if (status === 'draft' && await attemptsExist(id)) throw ApiError.conflict('Students have already attempted this exam, so it cannot go back to draft. Close it instead.', 'HAS_ATTEMPTS');
 
-  db.transaction((tx) => {
-    tx.update(exams)
+  await db.transaction(async (tx) => {
+    await tx.update(exams)
       .set({ status, totalMarks, ...(status === 'published' && !exam.publishedAt && { publishedAt: new Date() }) })
       .where(eq(exams.id, id))
       .run();
-    recordAudit(tx, ctx, { action: 'status_change', entityType: 'exam', entityId: id, summary: `Exam "${exam.title}": ${exam.status} → ${status}`, before: { status: exam.status }, after: { status, totalMarks } });
+    await recordAudit(tx, ctx, { action: 'status_change', entityType: 'exam', entityId: id, summary: `Exam "${exam.title}": ${exam.status} → ${status}`, before: { status: exam.status }, after: { status, totalMarks } });
   });
   if (status === 'published' && exam.status === 'draft') {
-    safely('exam_published', () => {
-      notifyUsers(examAudience(exam), { type: 'exam_published', title: `New exam: ${exam.title}`, body: `${exam.durationMinutes} minutes · ${totalMarks} marks`, link: '/portal/exams', entityType: 'exam', entityId: id, dedupeKey: `exam_published:${id}` });
+    await safely('exam_published', async () => {
+      await notifyUsers(await examAudience(exam), { type: 'exam_published', title: `New exam: ${exam.title}`, body: `${exam.durationMinutes} minutes · ${totalMarks} marks`, link: '/portal/exams', entityType: 'exam', entityId: id, dedupeKey: `exam_published:${id}` });
     });
   }
-  return getExam(ctx, id);
+  return await getExam(ctx, id);
 }
 
-export function examResults(ctx: RequestContext, id: string): ExamResultRow[] {
-  examForStaff(ctx, id);
-  finalizeExpired({ examId: id });
-  return db
+export async function examResults(ctx: RequestContext, id: string): Promise<ExamResultRow[]> {
+  await examForStaff(ctx, id);
+  await finalizeExpired({ examId: id });
+  return (await db
     .select({ a: examAttempts, studentName: students.fullName, studentCode: students.studentCode })
     .from(examAttempts)
     .innerJoin(students, eq(students.id, examAttempts.studentId))
     .where(eq(examAttempts.examId, id))
     .orderBy(asc(students.fullName), asc(examAttempts.attemptNumber))
-    .all()
+    .all())
     .map(({ a, studentName, studentCode }) => ({
       attemptId: a.id,
       studentId: a.studentId,
@@ -370,21 +374,21 @@ function isOpen(exam: Exam, now = Date.now()): string | null {
 }
 
 /** Grade every submitted-late or expired attempt that is still open. */
-export function finalizeExpired(filter: { examId?: string; studentId?: string }): void {
+export async function finalizeExpired(filter: { examId?: string; studentId?: string }): Promise<void> {
   const cutoff = Date.now() - GRACE_MS;
-  const open = db
+  const open = await db
     .select()
     .from(examAttempts)
     .where(and(isNull(examAttempts.submittedAt), sql`${examAttempts.deadlineAt} < ${cutoff}`, filter.examId ? eq(examAttempts.examId, filter.examId) : undefined, filter.studentId ? eq(examAttempts.studentId, filter.studentId) : undefined))
     .all();
-  for (const attempt of open) grade(attempt, true);
+  for (const attempt of open) await grade(attempt, true);
 }
 
-export function portalExams(studentId: string): PortalExam[] {
-  finalizeExpired({ studentId });
-  const rows = examQuery().where(and(inArray(exams.status, ['published', 'closed']), studentCanSee(studentId))).orderBy(desc(exams.publishedAt)).all();
+export async function portalExams(studentId: string): Promise<PortalExam[]> {
+  await finalizeExpired({ studentId });
+  const rows = await examQuery().where(and(inArray(exams.status, ['published', 'closed']), studentCanSee(studentId))).orderBy(desc(exams.publishedAt)).all();
   if (rows.length === 0) return [];
-  const attempts = db.select().from(examAttempts).where(and(eq(examAttempts.studentId, studentId), inArray(examAttempts.examId, rows.map((r) => r.e.id)))).all();
+  const attempts = await db.select().from(examAttempts).where(and(eq(examAttempts.studentId, studentId), inArray(examAttempts.examId, rows.map((r) => r.e.id)))).all();
   return rows.map((r) => {
     const e = r.e;
     const mine = attempts.filter((a) => a.examId === e.id);
@@ -424,46 +428,46 @@ function shuffled<T>(items: T[]): T[] {
   return out;
 }
 
-export function startAttempt(studentId: string, examId: string): ExamPaper {
-  finalizeExpired({ studentId, examId });
-  const exam = db.select().from(exams).where(and(eq(exams.id, examId), studentCanSee(studentId))).get();
+export async function startAttempt(studentId: string, examId: string): Promise<ExamPaper> {
+  await finalizeExpired({ studentId, examId });
+  const exam = await db.select().from(exams).where(and(eq(exams.id, examId), studentCanSee(studentId))).get();
   if (!exam) throw ApiError.notFound('Exam');
-  const open = db.select().from(examAttempts).where(and(eq(examAttempts.examId, examId), eq(examAttempts.studentId, studentId), isNull(examAttempts.submittedAt))).get();
-  if (open) return getPaper(studentId, open.id);
+  const open = await db.select().from(examAttempts).where(and(eq(examAttempts.examId, examId), eq(examAttempts.studentId, studentId), isNull(examAttempts.submittedAt))).get();
+  if (open) return await getPaper(studentId, open.id);
   const closed = isOpen(exam);
   if (closed) throw ApiError.unprocessable(closed, 'EXAM_NOT_OPEN');
-  const used = db.select({ n: count() }).from(examAttempts).where(and(eq(examAttempts.examId, examId), eq(examAttempts.studentId, studentId))).get()?.n ?? 0;
+  const used = (await db.select({ n: count() }).from(examAttempts).where(and(eq(examAttempts.examId, examId), eq(examAttempts.studentId, studentId))).get())?.n ?? 0;
   if (used >= exam.maxAttempts) throw ApiError.unprocessable(`You have used all ${exam.maxAttempts} attempt(s).`, 'NO_ATTEMPTS_LEFT');
 
-  const questionIds = db.select({ id: examQuestions.id }).from(examQuestions).where(and(eq(examQuestions.examId, examId), eq(examQuestions.isActive, true))).orderBy(asc(examQuestions.position)).all().map((q) => q.id);
+  const questionIds = (await db.select({ id: examQuestions.id }).from(examQuestions).where(and(eq(examQuestions.examId, examId), eq(examQuestions.isActive, true))).orderBy(asc(examQuestions.position)).all()).map((q) => q.id);
   const now = new Date();
   const byDuration = now.getTime() + exam.durationMinutes * 60_000;
   const deadline = new Date(exam.availableUntil ? Math.min(byDuration, exam.availableUntil.getTime()) : byDuration);
-  const attempt = db
+  const attempt = await db
     .insert(examAttempts)
     .values({ examId, studentId, attemptNumber: used + 1, questionOrder: exam.shuffleQuestions ? shuffled(questionIds) : questionIds, startedAt: now, deadlineAt: deadline })
     .returning()
     .get();
-  return getPaper(studentId, attempt.id);
+  return await getPaper(studentId, attempt.id);
 }
 
-function attemptFor(studentId: string, attemptId: string): ExamAttempt {
-  const attempt = db.select().from(examAttempts).where(and(eq(examAttempts.id, attemptId), eq(examAttempts.studentId, studentId))).get();
+async function attemptFor(studentId: string, attemptId: string): Promise<ExamAttempt> {
+  const attempt = await db.select().from(examAttempts).where(and(eq(examAttempts.id, attemptId), eq(examAttempts.studentId, studentId))).get();
   if (!attempt) throw ApiError.notFound('Attempt');
   return attempt;
 }
 
-export function getPaper(studentId: string, attemptId: string): ExamPaper {
-  const attempt = attemptFor(studentId, attemptId);
+export async function getPaper(studentId: string, attemptId: string): Promise<ExamPaper> {
+  const attempt = await attemptFor(studentId, attemptId);
   if (attempt.submittedAt) throw ApiError.conflict('This attempt has been submitted.', 'ALREADY_SUBMITTED');
   if (attempt.deadlineAt.getTime() + GRACE_MS < Date.now()) {
-    grade(attempt, true);
+    await grade(attempt, true);
     throw ApiError.conflict('Time is up: your saved answers were submitted.', 'TIME_UP');
   }
-  const exam = db.select().from(exams).where(eq(exams.id, attempt.examId)).get()!;
-  const questions = attempt.questionOrder.length ? db.select().from(examQuestions).where(inArray(examQuestions.id, attempt.questionOrder)).all() : [];
-  const options = questions.length ? db.select({ id: examOptions.id, questionId: examOptions.questionId, text: examOptions.text, position: examOptions.position }).from(examOptions).where(inArray(examOptions.questionId, questions.map((q) => q.id))).orderBy(asc(examOptions.position)).all() : [];
-  const answers = db.select().from(examAnswers).where(eq(examAnswers.attemptId, attempt.id)).all();
+  const exam = (await db.select().from(exams).where(eq(exams.id, attempt.examId)).get())!;
+  const questions = attempt.questionOrder.length ? await db.select().from(examQuestions).where(inArray(examQuestions.id, attempt.questionOrder)).all() : [];
+  const options = questions.length ? await db.select({ id: examOptions.id, questionId: examOptions.questionId, text: examOptions.text, position: examOptions.position }).from(examOptions).where(inArray(examOptions.questionId, questions.map((q) => q.id))).orderBy(asc(examOptions.position)).all() : [];
+  const answers = await db.select().from(examAnswers).where(eq(examAnswers.attemptId, attempt.id)).all();
   return {
     attemptId: attempt.id,
     examId: exam.id,
@@ -479,20 +483,20 @@ export function getPaper(studentId: string, attemptId: string): ExamPaper {
   };
 }
 
-export function saveAnswer(studentId: string, attemptId: string, raw: unknown): { saved: true } {
-  const attempt = attemptFor(studentId, attemptId);
+export async function saveAnswer(studentId: string, attemptId: string, raw: unknown): Promise<{ saved: true }> {
+  const attempt = await attemptFor(studentId, attemptId);
   if (attempt.submittedAt) throw ApiError.conflict('This attempt has been submitted.', 'ALREADY_SUBMITTED');
   if (attempt.deadlineAt.getTime() + GRACE_MS < Date.now()) {
-    grade(attempt, true);
+    await grade(attempt, true);
     throw ApiError.conflict('Time is up: your saved answers were submitted.', 'TIME_UP');
   }
   const input = examAnswerSchema.parse(raw);
   if (!attempt.questionOrder.includes(input.questionId)) throw ApiError.validation([{ path: 'questionId', message: 'That question is not part of this paper' }]);
   if (input.optionId) {
-    const option = db.select({ questionId: examOptions.questionId }).from(examOptions).where(eq(examOptions.id, input.optionId)).get();
+    const option = await db.select({ questionId: examOptions.questionId }).from(examOptions).where(eq(examOptions.id, input.optionId)).get();
     if (!option || option.questionId !== input.questionId) throw ApiError.unprocessable('That answer does not belong to the question.', 'INVALID_OPTION');
   }
-  db.insert(examAnswers)
+  await db.insert(examAnswers)
     .values({ attemptId, questionId: input.questionId, optionId: input.optionId, answeredAt: new Date() })
     .onConflictDoUpdate({ target: [examAnswers.attemptId, examAnswers.questionId], set: { optionId: input.optionId, answeredAt: new Date() } })
     .run();
@@ -500,48 +504,48 @@ export function saveAnswer(studentId: string, attemptId: string, raw: unknown): 
 }
 
 /** Score an attempt from the saved answers. The only place scores are written. */
-function grade(attempt: ExamAttempt, auto: boolean): void {
-  const exam = db.select().from(exams).where(eq(exams.id, attempt.examId)).get()!;
-  const questions = attempt.questionOrder.length ? db.select().from(examQuestions).where(inArray(examQuestions.id, attempt.questionOrder)).all() : [];
+async function grade(attempt: ExamAttempt, auto: boolean): Promise<void> {
+  const exam = (await db.select().from(exams).where(eq(exams.id, attempt.examId)).get())!;
+  const questions = attempt.questionOrder.length ? await db.select().from(examQuestions).where(inArray(examQuestions.id, attempt.questionOrder)).all() : [];
   const correct = new Map(
-    questions.length ? db.select({ questionId: examOptions.questionId, id: examOptions.id }).from(examOptions).where(and(inArray(examOptions.questionId, questions.map((q) => q.id)), eq(examOptions.isCorrect, true))).all().map((o) => [o.questionId, o.id]) : [],
+    questions.length ? (await db.select({ questionId: examOptions.questionId, id: examOptions.id }).from(examOptions).where(and(inArray(examOptions.questionId, questions.map((q) => q.id)), eq(examOptions.isCorrect, true))).all()).map((o) => [o.questionId, o.id]) : [],
   );
-  const answers = db.select().from(examAnswers).where(eq(examAnswers.attemptId, attempt.id)).all();
+  const answers = await db.select().from(examAnswers).where(eq(examAnswers.attemptId, attempt.id)).all();
   const total = questions.reduce((s, q) => s + q.marks, 0);
-  db.transaction((tx) => {
+  await db.transaction(async (tx) => {
     let score = 0;
     for (const a of answers) {
       const q = questions.find((x) => x.id === a.questionId);
       const right = Boolean(q && a.optionId && correct.get(q.id) === a.optionId);
       const marks = right ? q!.marks : 0;
       score += marks;
-      tx.update(examAnswers).set({ isCorrect: right, marksAwarded: marks }).where(eq(examAnswers.id, a.id)).run();
+      await tx.update(examAnswers).set({ isCorrect: right, marksAwarded: marks }).where(eq(examAnswers.id, a.id)).run();
     }
     const percentBps = total > 0 ? Math.round((score * 10_000) / total) : 0;
-    const updated = tx
+    const updated = await tx
       .update(examAttempts)
       .set({ submittedAt: new Date(), autoSubmitted: auto, score, totalMarks: total, percentBps, passed: percentBps >= exam.passPercent * 100 })
       .where(and(eq(examAttempts.id, attempt.id), isNull(examAttempts.submittedAt)))
       .run();
-    if (updated.changes === 0) return; // graded concurrently
+    if (updated.rowsAffected === 0) return; // graded concurrently
   });
 }
 
-export function submitAttempt(studentId: string, attemptId: string): AttemptResult {
-  const attempt = attemptFor(studentId, attemptId);
-  if (!attempt.submittedAt) grade(attempt, attempt.deadlineAt.getTime() + GRACE_MS < Date.now());
-  return attemptResult(studentId, attemptId);
+export async function submitAttempt(studentId: string, attemptId: string): Promise<AttemptResult> {
+  const attempt = await attemptFor(studentId, attemptId);
+  if (!attempt.submittedAt) await grade(attempt, attempt.deadlineAt.getTime() + GRACE_MS < Date.now());
+  return await attemptResult(studentId, attemptId);
 }
 
-export function attemptResult(studentId: string, attemptId: string): AttemptResult {
-  let attempt = attemptFor(studentId, attemptId);
+export async function attemptResult(studentId: string, attemptId: string): Promise<AttemptResult> {
+  let attempt = await attemptFor(studentId, attemptId);
   if (!attempt.submittedAt) {
     if (attempt.deadlineAt.getTime() + GRACE_MS >= Date.now()) throw ApiError.conflict('This attempt is still in progress.', 'IN_PROGRESS');
-    grade(attempt, true);
-    attempt = attemptFor(studentId, attemptId);
+    await grade(attempt, true);
+    attempt = await attemptFor(studentId, attemptId);
   }
-  const exam = db.select({ title: exams.title }).from(exams).where(eq(exams.id, attempt.examId)).get()!;
-  const answers = db.select().from(examAnswers).where(eq(examAnswers.attemptId, attempt.id)).all();
+  const exam = (await db.select({ title: exams.title }).from(exams).where(eq(exams.id, attempt.examId)).get())!;
+  const answers = await db.select().from(examAnswers).where(eq(examAnswers.attemptId, attempt.id)).all();
   return {
     attemptId: attempt.id,
     examId: attempt.examId,
@@ -559,13 +563,13 @@ export function attemptResult(studentId: string, attemptId: string): AttemptResu
   };
 }
 
-export function myResults(studentId: string): AttemptResult[] {
-  finalizeExpired({ studentId });
-  return db
+export async function myResults(studentId: string): Promise<AttemptResult[]> {
+  await finalizeExpired({ studentId });
+  return (await Promise.all((await db
     .select({ id: examAttempts.id })
     .from(examAttempts)
     .where(and(eq(examAttempts.studentId, studentId), sql`${examAttempts.submittedAt} is not null`))
     .orderBy(desc(examAttempts.submittedAt))
-    .all()
-    .map((a) => attemptResult(studentId, a.id));
+    .all())
+    .map(async (a) => await attemptResult(studentId, a.id))));
 }

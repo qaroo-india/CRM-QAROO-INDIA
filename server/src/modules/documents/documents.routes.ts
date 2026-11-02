@@ -26,27 +26,27 @@ export const uploadSingle = multer({
 
 export const documentsRouter = Router();
 
-documentsRouter.get('/', requirePermission('documents:read'), (req, res) => {
-  ok(res, listDocuments(contextFrom(req), parseQuery(documentListQuerySchema, req)));
+documentsRouter.get('/', requirePermission('documents:read'), async (req, res) => {
+  ok(res, await listDocuments(contextFrom(req), parseQuery(documentListQuerySchema, req)));
 });
 
-documentsRouter.get('/student/:studentId', requirePermission('documents:read'), (req, res) => {
-  ok(res, studentDocuments(contextFrom(req), paramId(req, 'studentId')));
+documentsRouter.get('/student/:studentId', requirePermission('documents:read'), async (req, res) => {
+  ok(res, await studentDocuments(contextFrom(req), paramId(req, 'studentId')));
 });
 
-documentsRouter.get('/:id', requirePermission('documents:read'), (req, res) => {
-  ok(res, getDocument(contextFrom(req), paramId(req)));
+documentsRouter.get('/:id', requirePermission('documents:read'), async (req, res) => {
+  ok(res, await getDocument(contextFrom(req), paramId(req)));
 });
 
-documentsRouter.get('/:id/download', requirePermission('documents:read'), (req, res) => {
-  sendDownload(res, downloadDocument(contextFrom(req), paramId(req)));
+documentsRouter.get('/:id/download', requirePermission('documents:read'), async (req, res) => {
+  sendDownload(res, await downloadDocument(contextFrom(req), paramId(req)));
 });
 
-documentsRouter.post('/', requirePermission('documents:write'), uploadSingle, (req, res) => {
-  created(res, uploadDocument(contextFrom(req), req.file, req.body));
+documentsRouter.post('/', requirePermission('documents:write'), uploadSingle, async (req, res) => {
+  created(res, await uploadDocument(contextFrom(req), req.file, req.body));
 });
 
-documentsRouter.post('/:id/delete', requirePermission('documents:write'), (req, res) => {
-  deleteDocument(contextFrom(req), paramId(req), req.body);
+documentsRouter.post('/:id/delete', requirePermission('documents:write'), async (req, res) => {
+  await deleteDocument(contextFrom(req), paramId(req), req.body);
   ok(res, { deleted: true });
 });

@@ -124,17 +124,17 @@ function toInstalmentDto(row: { inst: typeof instalments.$inferSelect; paidMinor
   };
 }
 
-export function instalmentsForPlan(planId: string, database: DbLike = db): InstalmentDto[] {
-  return database
+export async function instalmentsForPlan(planId: string, database: DbLike = db): Promise<InstalmentDto[]> {
+  return (await database
     .select(instalmentColumns(instituteToday()))
     .from(i)
     .where(eq(i.feePlanId, planId))
     .orderBy(asc(i.sequence))
-    .all()
+    .all())
     .map(toInstalmentDto);
 }
 
-function toPlanDto(plan: FeePlan, database: DbLike = db): FeePlanDto {
+async function toPlanDto(plan: FeePlan, database: DbLike = db): Promise<FeePlanDto> {
   return {
     id: plan.id,
     admissionId: plan.admissionId,
@@ -147,27 +147,27 @@ function toPlanDto(plan: FeePlan, database: DbLike = db): FeePlanDto {
     supersededAt: plan.supersededAt?.toISOString() ?? null,
     notes: plan.notes,
     createdAt: plan.createdAt.toISOString(),
-    instalments: instalmentsForPlan(plan.id, database),
+    instalments: await instalmentsForPlan(plan.id, database),
   };
 }
 
-export function plansForAdmission(admissionId: string): { active: FeePlanDto | null; previous: FeePlanDto[] } {
-  const plans = db.select().from(feePlans).where(eq(feePlans.admissionId, admissionId)).orderBy(desc(feePlans.createdAt)).all();
+export async function plansForAdmission(admissionId: string): Promise<{ active: FeePlanDto | null; previous: FeePlanDto[] }> {
+  const plans = await db.select().from(feePlans).where(eq(feePlans.admissionId, admissionId)).orderBy(desc(feePlans.createdAt)).all();
   const active = plans.find((p) => p.status === 'active');
   return {
-    active: active ? toPlanDto(active) : null,
-    previous: plans.filter((p) => p.status !== 'active').map((p) => toPlanDto(p)),
+    active: active ? await toPlanDto(active) : null,
+    previous: (await Promise.all(plans.filter((p) => p.status !== 'active').map(async (p) => await toPlanDto(p)))),
   };
 }
 
 /** Active instalments with money still owed, oldest due first: the default allocation order. */
-export function openInstalments(tx: DbLike, admissionId: string): { id: string; kind: string; remainingMinor: number }[] {
-  return tx
+export async function openInstalments(tx: DbLike, admissionId: string): Promise<{ id: string; kind: string; remainingMinor: number }[]> {
+  return (await tx
     .select(instalmentColumns(instituteToday()))
     .from(i)
     .where(and(eq(i.admissionId, admissionId), eq(i.state, 'active')))
     .orderBy(asc(i.dueDate), asc(i.sequence))
-    .all()
+    .all())
     .map(toInstalmentDto)
     .filter((row) => row.remainingMinor > 0)
     .map((row) => ({ id: row.id, kind: row.kind, remainingMinor: row.remainingMinor }));
@@ -177,8 +177,8 @@ export function openInstalments(tx: DbLike, admissionId: string): { id: string; 
  * Creating and restructuring
  * ------------------------------------------------------------------ */
 
-function insertPlan(tx: Tx, ctx: RequestContext, admission: Admission, plan: PlanInput, summary: string): FeePlan {
-  const finance = getAdmission(admission.id, tx);
+async function insertPlan(tx: Tx, ctx: RequestContext, admission: Admission, plan: PlanInput, summary: string): Promise<FeePlan> {
+  const finance = await getAdmission(admission.id, tx);
   const total = finance.outstandingMinor;
   if (total <= 0) {
     throw ApiError.unprocessable('Nothing is outstanding on this admission, so there is nothing to schedule.', 'NOTHING_TO_SCHEDULE');
@@ -191,7 +191,7 @@ function insertPlan(tx: Tx, ctx: RequestContext, admission: Admission, plan: Pla
   }
 
   const rows = buildSchedule(plan, total, admissionFee);
-  const created = tx
+  const created = await tx
     .insert(feePlans)
     .values({
       admissionId: admission.id,
@@ -206,13 +206,13 @@ function insertPlan(tx: Tx, ctx: RequestContext, admission: Admission, plan: Pla
     .returning()
     .get();
 
-  rows.forEach((row, index) => {
-    tx.insert(instalments)
+  for (const [index, row] of rows.entries()) {
+    await tx.insert(instalments)
       .values({ feePlanId: created.id, admissionId: admission.id, sequence: index + 1, kind: row.kind, dueDate: row.dueDate, amountMinor: row.amountMinor })
       .run();
-  });
+  }
 
-  recordAudit(tx, ctx, {
+  await recordAudit(tx, ctx, {
     action: 'create',
     entityType: 'fee_plan',
     entityId: created.id,
@@ -222,64 +222,64 @@ function insertPlan(tx: Tx, ctx: RequestContext, admission: Admission, plan: Pla
   return created;
 }
 
-export function createFeePlan(ctx: RequestContext, admissionId: string, raw: unknown): FeePlanDto {
+export async function createFeePlan(ctx: RequestContext, admissionId: string, raw: unknown): Promise<FeePlanDto> {
   const plan = feePlanSchema.parse(raw);
-  const admission = getAdmissionRow(admissionId);
+  const admission = await getAdmissionRow(admissionId);
   if (admission.status === 'cancelled') throw ApiError.unprocessable('This admission is cancelled.', 'ADMISSION_CANCELLED');
 
-  const created = db.transaction((tx) => {
-    const existing = tx.select({ id: feePlans.id }).from(feePlans).where(and(eq(feePlans.admissionId, admissionId), eq(feePlans.status, 'active'))).get();
+  const created = await db.transaction(async (tx) => {
+    const existing = await tx.select({ id: feePlans.id }).from(feePlans).where(and(eq(feePlans.admissionId, admissionId), eq(feePlans.status, 'active'))).get();
     if (existing) {
       throw ApiError.conflict('This admission already has a payment plan. Restructure it instead.', 'PLAN_EXISTS');
     }
-    return insertPlan(tx, ctx, admission, plan, 'Created payment plan');
+    return await insertPlan(tx, ctx, admission, plan, 'Created payment plan');
   });
-  return toPlanDto(created);
+  return await toPlanDto(created);
 }
 
-export function restructureFeePlan(ctx: RequestContext, admissionId: string, raw: unknown): FeePlanDto {
+export async function restructureFeePlan(ctx: RequestContext, admissionId: string, raw: unknown): Promise<FeePlanDto> {
   const plan = feePlanSchema.parse(raw);
-  const admission = getAdmissionRow(admissionId);
+  const admission = await getAdmissionRow(admissionId);
   if (admission.status === 'cancelled') throw ApiError.unprocessable('This admission is cancelled.', 'ADMISSION_CANCELLED');
 
-  const created = db.transaction((tx) => {
-    const current = tx.select().from(feePlans).where(and(eq(feePlans.admissionId, admissionId), eq(feePlans.status, 'active'))).get();
+  const created = await db.transaction(async (tx) => {
+    const current = await tx.select().from(feePlans).where(and(eq(feePlans.admissionId, admissionId), eq(feePlans.status, 'active'))).get();
     if (current) {
       // Close what was unpaid on the old schedule; paid rows stay as history.
-      for (const row of instalmentsForPlan(current.id, tx)) {
+      for (const row of await instalmentsForPlan(current.id, tx)) {
         if (row.state === 'active' && row.remainingMinor > 0) {
-          tx.update(instalments).set({ state: 'cancelled', stateReason: 'Superseded by a restructured plan' }).where(eq(instalments.id, row.id)).run();
+          await tx.update(instalments).set({ state: 'cancelled', stateReason: 'Superseded by a restructured plan' }).where(eq(instalments.id, row.id)).run();
         }
       }
-      tx.update(feePlans).set({ status: 'superseded', supersededAt: new Date() }).where(eq(feePlans.id, current.id)).run();
+      await tx.update(feePlans).set({ status: 'superseded', supersededAt: new Date() }).where(eq(feePlans.id, current.id)).run();
     }
-    return insertPlan(tx, ctx, admission, plan, current ? 'Restructured payment plan' : 'Created payment plan');
+    return await insertPlan(tx, ctx, admission, plan, current ? 'Restructured payment plan' : 'Created payment plan');
   });
-  return toPlanDto(created);
+  return await toPlanDto(created);
 }
 
 /* ------------------------------------------------------------------ *
  * Reacting to the admission lifecycle
  * ------------------------------------------------------------------ */
 
-function closeOpenInstalments(tx: Tx, admissionId: string, state: 'cancelled' | 'waived', reason: string): void {
-  for (const row of openInstalments(tx, admissionId)) {
-    tx.update(instalments).set({ state, stateReason: reason }).where(eq(instalments.id, row.id)).run();
+async function closeOpenInstalments(tx: Tx, admissionId: string, state: 'cancelled' | 'waived', reason: string): Promise<void> {
+  for (const row of await openInstalments(tx, admissionId)) {
+    await tx.update(instalments).set({ state, stateReason: reason }).where(eq(instalments.id, row.id)).run();
   }
 }
 
-admissionHooks.registerOnCreated((tx, ctx, admission, rawInput) => {
+admissionHooks.registerOnCreated(async (tx, ctx, admission, rawInput) => {
   const plan = (rawInput as { feePlan?: unknown } | null)?.feePlan;
-  if (plan) insertPlan(tx, ctx, admission, feePlanSchema.parse(plan), 'Created payment plan');
+  if (plan) await insertPlan(tx, ctx, admission, feePlanSchema.parse(plan), 'Created payment plan');
 });
 
-admissionHooks.registerOnStatusChanged((tx, _ctx, _before, after) => {
+admissionHooks.registerOnStatusChanged(async (tx, _ctx, _before, after) => {
   if (after.status === 'cancelled') {
-    closeOpenInstalments(tx, after.id, 'cancelled', 'Admission cancelled');
+    await closeOpenInstalments(tx, after.id, 'cancelled', 'Admission cancelled');
   }
-  if (after.status === 'withdrawn' && getAdmission(after.id, tx).outstandingMinor === 0) {
+  if (after.status === 'withdrawn' && (await getAdmission(after.id, tx)).outstandingMinor === 0) {
     // Balance written off: nothing remains to chase.
-    closeOpenInstalments(tx, after.id, 'waived', 'Balance written off on withdrawal');
+    await closeOpenInstalments(tx, after.id, 'waived', 'Balance written off on withdrawal');
   }
 });
 

@@ -97,23 +97,23 @@ function toDto(row: LoanRow): LoanDto {
   };
 }
 
-function getLoanRow(id: string, database: DbLike = db): Loan {
-  const loan = database.select().from(loans).where(eq(loans.id, id)).get();
+async function getLoanRow(id: string, database: DbLike = db): Promise<Loan> {
+  const loan = await database.select().from(loans).where(eq(loans.id, id)).get();
   if (!loan) throw ApiError.notFound('Loan');
   return loan;
 }
 
-export function getLoan(id: string): LoanDetail {
-  const row = loanQuery().where(eq(loans.id, id)).get();
+export async function getLoan(id: string): Promise<LoanDetail> {
+  const row = await loanQuery().where(eq(loans.id, id)).get();
   if (!row) throw ApiError.notFound('Loan');
-  const disbursements = db
+  const disbursements = await db
     .select({ d: loanDisbursements, receiptNumber: payments.receiptNumber, paymentStatus: payments.status })
     .from(loanDisbursements)
     .leftJoin(payments, eq(payments.id, loanDisbursements.paymentId))
     .where(eq(loanDisbursements.loanId, id))
     .orderBy(asc(loanDisbursements.disbursedOn))
     .all();
-  const history = db
+  const history = await db
     .select({ log: auditLogs, actorName: actor.name })
     .from(auditLogs)
     .leftJoin(actor, eq(actor.id, auditLogs.actorId))
@@ -162,18 +162,18 @@ function filters(query: Partial<ListQuery>): SQL[] {
   return conditions;
 }
 
-export function listLoans(query: ListQuery) {
+export async function listLoans(query: ListQuery) {
   const where = and(...filters(query));
   const total =
-    db
+    (await db
       .select({ n: count() })
       .from(loans)
       .innerJoin(admissions, eq(admissions.id, loans.admissionId))
       .innerJoin(students, eq(students.id, loans.studentId))
       .where(where)
-      .get()?.n ?? 0;
+      .get())?.n ?? 0;
   const { limit, offset } = pageWindow(query.page, query.limit);
-  const rows = loanQuery()
+  const rows = await loanQuery()
     .where(where)
     .orderBy(query.order === 'asc' ? asc(loans.createdAt) : desc(loans.createdAt))
     .limit(limit)
@@ -182,12 +182,12 @@ export function listLoans(query: ListQuery) {
   return paginated(rows.map(toDto), total, query.page, query.limit);
 }
 
-export function loansForAdmission(admissionId: string): LoanDto[] {
-  return loanQuery().where(eq(loans.admissionId, admissionId)).orderBy(desc(loans.createdAt)).all().map(toDto);
+export async function loansForAdmission(admissionId: string): Promise<LoanDto[]> {
+  return (await loanQuery().where(eq(loans.admissionId, admissionId)).orderBy(desc(loans.createdAt)).all()).map(toDto);
 }
 
-export function loanSummary(): LoanSummary {
-  const rows = loanQuery().all().map(toDto);
+export async function loanSummary(): Promise<LoanSummary> {
+  const rows = (await loanQuery().all()).map(toDto);
   const byStatus = new Map<string, { count: number; requestedMinor: number }>();
   const byProvider = new Map<string, { count: number; approvedMinor: number; receivedMinor: number }>();
   let requested = 0;
@@ -224,15 +224,15 @@ export function loanSummary(): LoanSummary {
  * Commands
  * ------------------------------------------------------------------ */
 
-export function createLoan(ctx: RequestContext, raw: unknown): LoanDetail {
+export async function createLoan(ctx: RequestContext, raw: unknown): Promise<LoanDetail> {
   const input = loanCreateSchema.parse(raw);
-  const admission = getAdmissionRow(input.admissionId);
+  const admission = await getAdmissionRow(input.admissionId);
   if (admission.status === 'cancelled') throw ApiError.unprocessable('This admission is cancelled.', 'ADMISSION_CANCELLED');
   if (input.requestedMinor > admission.agreedFeeMinor) {
     throw ApiError.validation([{ path: 'requestedMinor', message: `Cannot exceed the agreed fee of ${formatMoney(admission.agreedFeeMinor)}` }]);
   }
-  const id = db.transaction((tx) => {
-    const loan = tx
+  const id = await db.transaction(async (tx) => {
+    const loan = await tx
       .insert(loans)
       .values({
         ...input,
@@ -243,7 +243,7 @@ export function createLoan(ctx: RequestContext, raw: unknown): LoanDetail {
       })
       .returning()
       .get();
-    recordAudit(tx, ctx, {
+    await recordAudit(tx, ctx, {
       action: 'create',
       entityType: 'loan',
       entityId: loan.id,
@@ -252,24 +252,24 @@ export function createLoan(ctx: RequestContext, raw: unknown): LoanDetail {
     });
     return loan.id;
   });
-  return getLoan(id);
+  return await getLoan(id);
 }
 
-export function updateLoan(ctx: RequestContext, id: string, raw: unknown): LoanDetail {
+export async function updateLoan(ctx: RequestContext, id: string, raw: unknown): Promise<LoanDetail> {
   const input = loanUpdateSchema.parse(raw);
-  const existing = getLoanRow(id);
+  const existing = await getLoanRow(id);
   if (['rejected', 'cancelled'].includes(existing.status)) throw ApiError.conflict('A closed loan cannot be edited.');
   if (existing.status === 'approved' && input.requestedMinor !== existing.requestedMinor) {
     throw ApiError.conflict('The requested amount cannot change after approval.');
   }
-  db.transaction((tx) => {
-    const updated = tx
+  await db.transaction(async (tx) => {
+    const updated = await tx
       .update(loans)
       .set({ ...input, applicationReference: input.applicationReference ?? null, notes: input.notes ?? null })
       .where(eq(loans.id, id))
       .returning()
       .get();
-    recordAudit(tx, ctx, {
+    await recordAudit(tx, ctx, {
       action: 'update',
       entityType: 'loan',
       entityId: id,
@@ -277,7 +277,7 @@ export function updateLoan(ctx: RequestContext, id: string, raw: unknown): LoanD
       ...diff(existing as unknown as Record<string, unknown>, updated as unknown as Record<string, unknown>),
     });
   });
-  return getLoan(id);
+  return await getLoan(id);
 }
 
 const TRANSITIONS: Record<Loan['status'], readonly Loan['status'][]> = {
@@ -289,9 +289,9 @@ const TRANSITIONS: Record<Loan['status'], readonly Loan['status'][]> = {
   cancelled: [],
 };
 
-export function changeLoanStatus(ctx: RequestContext, id: string, raw: unknown): LoanDetail {
+export async function changeLoanStatus(ctx: RequestContext, id: string, raw: unknown): Promise<LoanDetail> {
   const input = loanStatusSchema.parse(raw);
-  const loan = getLoanRow(id);
+  const loan = await getLoanRow(id);
   const to = input.status as Loan['status'];
 
   if (!TRANSITIONS[loan.status].includes(to)) {
@@ -307,12 +307,12 @@ export function changeLoanStatus(ctx: RequestContext, id: string, raw: unknown):
     }
   }
   if (to === 'cancelled') {
-    const disbursed = db.select({ n: count() }).from(loanDisbursements).where(eq(loanDisbursements.loanId, id)).get()?.n ?? 0;
+    const disbursed = (await db.select({ n: count() }).from(loanDisbursements).where(eq(loanDisbursements.loanId, id)).get())?.n ?? 0;
     if (disbursed > 0) throw ApiError.conflict('Money has been disbursed on this loan; it cannot be cancelled.');
   }
 
-  db.transaction((tx) => {
-    tx.update(loans)
+  await db.transaction(async (tx) => {
+    await tx.update(loans)
       .set({
         status: to,
         ...(to === 'applied' && { appliedOn: input.date }),
@@ -322,7 +322,7 @@ export function changeLoanStatus(ctx: RequestContext, id: string, raw: unknown):
       })
       .where(eq(loans.id, id))
       .run();
-    recordAudit(tx, ctx, {
+    await recordAudit(tx, ctx, {
       action: 'status_change',
       entityType: 'loan',
       entityId: id,
@@ -332,9 +332,9 @@ export function changeLoanStatus(ctx: RequestContext, id: string, raw: unknown):
     });
   });
   if (to === 'approved' || to === 'rejected' || to === 'under_review') {
-    safely('loan_status_change', () => {
-      const student = db.select({ name: students.fullName }).from(students).where(eq(students.id, loan.studentId)).get();
-      notifyPermission(
+    await safely('loan_status_change', async () => {
+      const student = await db.select({ name: students.fullName }).from(students).where(eq(students.id, loan.studentId)).get();
+      await notifyPermission(
         'loans:read',
         {
           type: 'loan_status_change',
@@ -350,13 +350,13 @@ export function changeLoanStatus(ctx: RequestContext, id: string, raw: unknown):
       );
     });
   }
-  return getLoan(id);
+  return await getLoan(id);
 }
 
-export function recordDisbursement(ctx: RequestContext, id: string, raw: unknown): LoanDetail {
+export async function recordDisbursement(ctx: RequestContext, id: string, raw: unknown): Promise<LoanDetail> {
   const input = disbursementSchema.parse(raw);
-  db.transaction((tx) => {
-    const loan = getLoanRow(id, tx);
+  await db.transaction(async (tx) => {
+    const loan = await getLoanRow(id, tx);
     if (loan.financeType === 'internal_instalment') {
       throw ApiError.unprocessable('An internal facility is repaid through its instalment schedule; there is nothing to disburse.', 'NOT_DISBURSABLE');
     }
@@ -364,11 +364,11 @@ export function recordDisbursement(ctx: RequestContext, id: string, raw: unknown
       throw ApiError.unprocessable('Only an approved loan can be disbursed.', 'NOT_APPROVED');
     }
     const soFar =
-      tx
+      (await tx
         .select({ total: sql<number>`coalesce(sum(${loanDisbursements.amountMinor}), 0)`.mapWith(Number) })
         .from(loanDisbursements)
         .where(eq(loanDisbursements.loanId, id))
-        .get()?.total ?? 0;
+        .get())?.total ?? 0;
     if (soFar + input.amountMinor > loan.approvedMinor) {
       throw ApiError.unprocessable(
         `Only ${formatMoney(loan.approvedMinor - soFar)} of the approved ${formatMoney(loan.approvedMinor)} remains to disburse.`,
@@ -378,7 +378,7 @@ export function recordDisbursement(ctx: RequestContext, id: string, raw: unknown
 
     // Cash only when it has actually reached the institute.
     const payment = input.receivedByInstitute
-      ? insertPayment(
+      ? await insertPayment(
           tx,
           ctx,
           {
@@ -394,7 +394,7 @@ export function recordDisbursement(ctx: RequestContext, id: string, raw: unknown
         )
       : null;
 
-    const disbursement = tx
+    const disbursement = await tx
       .insert(loanDisbursements)
       .values({
         loanId: id,
@@ -407,7 +407,7 @@ export function recordDisbursement(ctx: RequestContext, id: string, raw: unknown
       })
       .returning()
       .get();
-    recordAudit(tx, ctx, {
+    await recordAudit(tx, ctx, {
       action: 'create',
       entityType: 'loan',
       entityId: id,
@@ -415,26 +415,26 @@ export function recordDisbursement(ctx: RequestContext, id: string, raw: unknown
       after: disbursement,
     });
   });
-  return getLoan(id);
+  return await getLoan(id);
 }
 
 /** Link a reported disbursement to its arrival later, recording the receipt then. */
-export function markDisbursementReceived(ctx: RequestContext, loanId: string, disbursementId: string, receivedOn: string): LoanDetail {
-  db.transaction((tx) => {
-    const loan = getLoanRow(loanId, tx);
-    const d = tx.select().from(loanDisbursements).where(and(eq(loanDisbursements.id, disbursementId), eq(loanDisbursements.loanId, loanId))).get();
+export async function markDisbursementReceived(ctx: RequestContext, loanId: string, disbursementId: string, receivedOn: string): Promise<LoanDetail> {
+  await db.transaction(async (tx) => {
+    const loan = await getLoanRow(loanId, tx);
+    const d = await tx.select().from(loanDisbursements).where(and(eq(loanDisbursements.id, disbursementId), eq(loanDisbursements.loanId, loanId))).get();
     if (!d) throw ApiError.notFound('Disbursement');
     if (d.paymentId) {
-      const linked = tx.select({ status: payments.status }).from(payments).where(eq(payments.id, d.paymentId)).get();
+      const linked = await tx.select({ status: payments.status }).from(payments).where(eq(payments.id, d.paymentId)).get();
       if (linked?.status === 'succeeded') throw ApiError.conflict('This disbursement is already marked as received.');
     }
-    const payment = insertPayment(
+    const payment = await insertPayment(
       tx,
       ctx,
       { admissionId: loan.admissionId, paymentDate: receivedOn, amountMinor: d.amountMinor, method: 'finance_disbursement', paymentType: 'loan_disbursement', referenceNumber: d.reference ?? undefined, notes: `Disbursement from ${loan.providerName}` },
       { summaryPrefix: 'Received loan disbursement' },
     );
-    tx.update(loanDisbursements).set({ paymentId: payment.id }).where(eq(loanDisbursements.id, d.id)).run();
+    await tx.update(loanDisbursements).set({ paymentId: payment.id }).where(eq(loanDisbursements.id, d.id)).run();
   });
-  return getLoan(loanId);
+  return await getLoan(loanId);
 }

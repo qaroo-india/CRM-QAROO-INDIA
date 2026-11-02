@@ -39,44 +39,44 @@ portalRouter.use(requireAccount('student'));
 
 const me = (req: Request) => req.auth!.studentId!;
 
-portalRouter.get('/overview', (req, res) => ok(res, overview(contextFrom(req), me(req))));
-portalRouter.get('/fees', (req, res) => ok(res, fees(me(req))));
+portalRouter.get('/overview', async (req, res) => ok(res, await overview(contextFrom(req), me(req))));
+portalRouter.get('/fees', async (req, res) => ok(res, await fees(me(req))));
 
 portalRouter.get('/receipts/:id', async (req, res) => {
   const id = paramId(req);
-  assertOwnPayment(me(req), id);
-  const receipt = getReceipt(id);
+  await assertOwnPayment(me(req), id);
+  const receipt = await getReceipt(id);
   const pdf = await renderReceiptPdf(receipt, new Date(), getSettings().timezone);
   sendDownload(res, { buffer: pdf, fileName: `${receipt.payment.receiptNumber}.pdf`, mimeType: 'application/pdf' }, 'inline');
 });
 
-portalRouter.get('/attendance', (req, res) => ok(res, attendance(me(req))));
+portalRouter.get('/attendance', async (req, res) => ok(res, await attendance(me(req))));
 
 const classesQuery = z.object({ from: dateOnlySchema.optional(), to: dateOnlySchema.optional() });
-portalRouter.get('/classes', (req, res) => {
+portalRouter.get('/classes', async (req, res) => {
   const q = parseQuery(classesQuery, req);
   const today = instituteToday();
-  ok(res, myClasses(contextFrom(req), me(req), q.from ?? addDays(today, -7), q.to ?? addDays(today, 30)));
+  ok(res, await myClasses(contextFrom(req), me(req), q.from ?? addDays(today, -7), q.to ?? addDays(today, 30)));
 });
 
-portalRouter.get('/exams', (req, res) => ok(res, portalExams(me(req))));
-portalRouter.post('/exams/:id/start', (req, res) => created(res, startAttempt(me(req), paramId(req))));
-portalRouter.get('/attempts/:id', (req, res) => ok(res, getPaper(me(req), paramId(req))));
-portalRouter.put('/attempts/:id/answers', (req, res) => ok(res, saveAnswer(me(req), paramId(req), req.body)));
-portalRouter.post('/attempts/:id/submit', (req, res) => ok(res, submitAttempt(me(req), paramId(req))));
-portalRouter.get('/attempts/:id/result', (req, res) => ok(res, attemptResult(me(req), paramId(req))));
-portalRouter.get('/results', (req, res) => ok(res, myResults(me(req))));
+portalRouter.get('/exams', async (req, res) => ok(res, await portalExams(me(req))));
+portalRouter.post('/exams/:id/start', async (req, res) => created(res, await startAttempt(me(req), paramId(req))));
+portalRouter.get('/attempts/:id', async (req, res) => ok(res, await getPaper(me(req), paramId(req))));
+portalRouter.put('/attempts/:id/answers', async (req, res) => ok(res, await saveAnswer(me(req), paramId(req), req.body)));
+portalRouter.post('/attempts/:id/submit', async (req, res) => ok(res, await submitAttempt(me(req), paramId(req))));
+portalRouter.get('/attempts/:id/result', async (req, res) => ok(res, await attemptResult(me(req), paramId(req))));
+portalRouter.get('/results', async (req, res) => ok(res, await myResults(me(req))));
 
-portalRouter.get('/materials', (req, res) => ok(res, portalMaterials(me(req))));
-portalRouter.get('/materials/:id/open', (req, res) => {
-  const opened = openMaterial(contextFrom(req), paramId(req), me(req));
+portalRouter.get('/materials', async (req, res) => ok(res, await portalMaterials(me(req))));
+portalRouter.get('/materials/:id/open', async (req, res) => {
+  const opened = await openMaterial(contextFrom(req), paramId(req), me(req));
   if (opened.file) sendDownload(res, opened.file);
   else ok(res, { url: opened.url });
 });
 
-portalRouter.get('/certificates', (req, res) => ok(res, listCertificates(certificateListQuerySchema.parse({ limit: 100 }), me(req)).items));
-portalRouter.post('/certificates', (req, res) => created(res, requestCertificate(contextFrom(req), req.body, me(req))));
-portalRouter.get('/certificates/:id/file', (req, res) => sendDownload(res, certificateFile(paramId(req), me(req)), 'inline'));
+portalRouter.get('/certificates', async (req, res) => ok(res, (await listCertificates(certificateListQuerySchema.parse({ limit: 100 }), me(req))).items));
+portalRouter.post('/certificates', async (req, res) => created(res, await requestCertificate(contextFrom(req), req.body, me(req))));
+portalRouter.get('/certificates/:id/file', async (req, res) => sendDownload(res, await certificateFile(paramId(req), me(req)), 'inline'));
 
-portalRouter.get('/placements', (req, res) => ok(res, placement(me(req))));
-portalRouter.post('/drives/:id/apply', (req, res) => created(res, applyAsStudent(contextFrom(req), me(req), paramId(req))));
+portalRouter.get('/placements', async (req, res) => ok(res, await placement(me(req))));
+portalRouter.post('/drives/:id/apply', async (req, res) => created(res, await applyAsStudent(contextFrom(req), me(req), paramId(req))));

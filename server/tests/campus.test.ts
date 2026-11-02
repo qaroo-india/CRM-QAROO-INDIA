@@ -282,8 +282,8 @@ describe('leave, tasks and inventory', () => {
     await stranger.post(`/api/v1/tasks/${given.id}/status`, { status: 'todo' }).expect(404);
 
     // The daily sweep reminds the assignee about the overdue task, once a day.
-    const first = runNotificationSweep();
-    const again = runNotificationSweep();
+    const first = await runNotificationSweep();
+    const again = await runNotificationSweep();
     expect(first.created).toBeGreaterThan(again.created);
     const inbox = (await faculty.get('/api/v1/notifications').expect(200)).body.data.items as { type: string; title: string; link: string }[];
     const reminders = inbox.filter((x) => x.type === 'task_due');

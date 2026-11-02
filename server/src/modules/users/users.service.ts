@@ -29,18 +29,18 @@ import type { RequestContext } from '../../utils/context';
 import { containsText } from '../../utils/pagination';
 import { hashPassword } from '../auth/password';
 import { revokeAllForUser } from '../auth/tokens';
-import { toUserSummary } from './serialize';
+import { accountLinks, toUserSummary } from './serialize';
 
-function findUser(id: string): User {
-  const user = db.select().from(users).where(eq(users.id, id)).get();
+async function findUser(id: string): Promise<User> {
+  const user = await db.select().from(users).where(eq(users.id, id)).get();
   if (!user) throw ApiError.notFound('User');
   return user;
 }
 
-function activeOwnerCount(excludingId?: string): number {
+async function activeOwnerCount(excludingId?: string): Promise<number> {
   const conditions = [eq(users.role, 'owner'), eq(users.isActive, true)];
   if (excludingId) conditions.push(ne(users.id, excludingId));
-  return db.select({ n: count() }).from(users).where(and(...conditions)).get()?.n ?? 0;
+  return (await db.select({ n: count() }).from(users).where(and(...conditions)).get())?.n ?? 0;
 }
 
 function assertCanGrant(ctx: RequestContext, role: User['role'], permissions: readonly string[]): void {
@@ -61,7 +61,7 @@ function profileColumns(input: Partial<Record<'staffCode' | 'designation' | 'dep
   return out as Partial<Pick<User, 'staffCode' | 'designation' | 'department' | 'employmentType' | 'joinedOn' | 'specialisation' | 'bio'>>;
 }
 
-export function listUsers(query: z.output<typeof userListQuerySchema>): UserSummary[] {
+export async function listUsers(query: z.output<typeof userListQuerySchema>): Promise<UserSummary[]> {
   const conditions: SQL[] = [];
   if (query.q) {
     conditions.push(or(containsText(users.name, query.q), containsText(users.email, query.q))!);
@@ -71,18 +71,18 @@ export function listUsers(query: z.output<typeof userListQuerySchema>): UserSumm
   // Student logins are managed from the student's profile, not the staff list.
   conditions.push(query.accountType ? eq(users.accountType, query.accountType) : sql`${users.accountType} <> 'student'`);
 
-  return db
+  return (await Promise.all((await db
     .select()
     .from(users)
     .where(and(...conditions))
     .orderBy(sql`${users.isActive} desc`, asc(users.name))
-    .all()
-    .map((u) => toUserSummary(u));
+    .all())
+    .map(async (u) => await toUserSummary(u))));
 }
 
 /** Active users for assignee dropdowns (counsellor, coordinator, recorded by). */
-export function userOptions(): UserOption[] {
-  return db
+export async function userOptions(): Promise<UserOption[]> {
+  return await db
     .select({ id: users.id, name: users.name, role: users.role })
     .from(users)
     .where(and(eq(users.isActive, true), sql`${users.accountType} <> 'student'`))
@@ -90,8 +90,8 @@ export function userOptions(): UserOption[] {
     .all();
 }
 
-export function getUser(id: string): UserSummary {
-  return toUserSummary(findUser(id));
+export async function getUser(id: string): Promise<UserSummary> {
+  return await toUserSummary(await findUser(id));
 }
 
 export async function createUser(ctx: RequestContext, raw: CreateUserInput): Promise<UserSummary> {
@@ -105,14 +105,14 @@ export async function createUser(ctx: RequestContext, raw: CreateUserInput): Pro
         : [...((jobRole ? JOB_ROLE_PERMISSIONS[jobRole] : DEFAULT_ROLE_PERMISSIONS.staff) as readonly string[])];
   assertCanGrant(ctx, input.role, permissions);
 
-  if (db.select({ id: users.id }).from(users).where(eq(users.email, input.email)).get()) {
+  if (await db.select({ id: users.id }).from(users).where(eq(users.email, input.email)).get()) {
     throw ApiError.conflict('A user with this email already exists.');
   }
 
   const passwordHash = await hashPassword(input.temporaryPassword);
 
-  return db.transaction((tx) => {
-    const created = tx
+  return await db.transaction(async (tx) => {
+    const created = await tx
       .insert(users)
       .values({
         name: input.name,
@@ -128,20 +128,20 @@ export async function createUser(ctx: RequestContext, raw: CreateUserInput): Pro
       })
       .returning()
       .get();
-    recordAudit(tx, ctx, {
+    await recordAudit(tx, ctx, {
       action: 'create',
       entityType: 'user',
       entityId: created.id,
       summary: `Created ${created.role} account for ${created.name}`,
       after: { name: created.name, email: created.email, role: created.role, permissions },
     });
-    return toUserSummary(created);
+    return await toUserSummary(created, await accountLinks(created, tx));
   });
 }
 
-export function updateUser(ctx: RequestContext, id: string, raw: UpdateUserInput): UserSummary {
+export async function updateUser(ctx: RequestContext, id: string, raw: UpdateUserInput): Promise<UserSummary> {
   const input = updateUserSchema.parse(raw);
-  const user = findUser(id);
+  const user = await findUser(id);
 
   const nextRole = input.role ?? user.role;
   if (nextRole === 'owner' && user.accountType !== 'team') {
@@ -159,13 +159,13 @@ export function updateUser(ctx: RequestContext, id: string, raw: UpdateUserInput
     if (!ctx.isOwner && user.role === 'owner') {
       throw ApiError.forbidden("Only an owner can change another owner's access.");
     }
-    if (user.role === 'owner' && nextRole !== 'owner' && user.isActive && activeOwnerCount(id) === 0) {
+    if (user.role === 'owner' && nextRole !== 'owner' && user.isActive && await activeOwnerCount(id) === 0) {
       throw ApiError.conflict('The institute must keep at least one active owner.');
     }
   }
 
-  return db.transaction((tx) => {
-    const updated = tx
+  return await db.transaction(async (tx) => {
+    const updated = await tx
       .update(users)
       .set({
         ...(input.name !== undefined && { name: input.name }),
@@ -179,27 +179,27 @@ export function updateUser(ctx: RequestContext, id: string, raw: UpdateUserInput
       .returning()
       .get();
     const changes = diff(user as unknown as Record<string, unknown>, updated as unknown as Record<string, unknown>);
-    recordAudit(tx, ctx, {
+    await recordAudit(tx, ctx, {
       action: 'update',
       entityType: 'user',
       entityId: id,
       summary: `Updated ${updated.name}'s account`,
       ...changes,
     });
-    return toUserSummary(updated);
+    return await toUserSummary(updated, await accountLinks(updated, tx));
   });
 }
 
-export function setUserActive(ctx: RequestContext, id: string, active: boolean): UserSummary {
-  const user = findUser(id);
+export async function setUserActive(ctx: RequestContext, id: string, active: boolean): Promise<UserSummary> {
+  const user = await findUser(id);
   if (id === ctx.actorId && !active) throw ApiError.forbidden('You cannot deactivate your own account.');
   if (!ctx.isOwner && user.role === 'owner') throw ApiError.forbidden('Only an owner can change an owner account.');
-  if (!active && user.role === 'owner' && activeOwnerCount(id) === 0) {
+  if (!active && user.role === 'owner' && await activeOwnerCount(id) === 0) {
     throw ApiError.conflict('The institute must keep at least one active owner.');
   }
 
-  return db.transaction((tx) => {
-    const updated = tx
+  return await db.transaction(async (tx) => {
+    const updated = await tx
       .update(users)
       .set({
         isActive: active,
@@ -209,8 +209,8 @@ export function setUserActive(ctx: RequestContext, id: string, active: boolean):
       .where(eq(users.id, id))
       .returning()
       .get();
-    if (!active) revokeAllForUser(tx, id);
-    recordAudit(tx, ctx, {
+    if (!active) await revokeAllForUser(tx, id);
+    await recordAudit(tx, ctx, {
       action: 'status_change',
       entityType: 'user',
       entityId: id,
@@ -218,17 +218,17 @@ export function setUserActive(ctx: RequestContext, id: string, active: boolean):
       before: { isActive: user.isActive },
       after: { isActive: active },
     });
-    return toUserSummary(updated);
+    return await toUserSummary(updated, await accountLinks(updated, tx));
   });
 }
 
 export async function resetPassword(ctx: RequestContext, id: string, temporaryPassword: string): Promise<UserSummary> {
-  const user = findUser(id);
+  const user = await findUser(id);
   if (!ctx.isOwner && user.role === 'owner') throw ApiError.forbidden('Only an owner can reset an owner password.');
   const passwordHash = await hashPassword(temporaryPassword);
 
-  return db.transaction((tx) => {
-    const updated = tx
+  return await db.transaction(async (tx) => {
+    const updated = await tx
       .update(users)
       .set({
         passwordHash,
@@ -240,13 +240,13 @@ export async function resetPassword(ctx: RequestContext, id: string, temporaryPa
       .where(eq(users.id, id))
       .returning()
       .get();
-    revokeAllForUser(tx, id);
-    recordAudit(tx, ctx, {
+    await revokeAllForUser(tx, id);
+    await recordAudit(tx, ctx, {
       action: 'password_change',
       entityType: 'user',
       entityId: id,
       summary: `Issued a temporary password to ${user.name}`,
     });
-    return toUserSummary(updated);
+    return await toUserSummary(updated, await accountLinks(updated, tx));
   });
 }

@@ -23,43 +23,43 @@ import { createSessions, getSession, listSessions, setSessionStatus, updateSessi
 
 export const scheduleRouter = Router();
 
-scheduleRouter.get('/', requirePermission('schedule:read'), (req, res) => {
-  ok(res, listSessions(contextFrom(req), parseQuery(scheduleQuerySchema, req)));
+scheduleRouter.get('/', requirePermission('schedule:read'), async (req, res) => {
+  ok(res, await listSessions(contextFrom(req), parseQuery(scheduleQuerySchema, req)));
 });
 
-scheduleRouter.get('/:id', requirePermission('schedule:read'), (req, res) => {
-  ok(res, getSession(contextFrom(req), paramId(req)));
+scheduleRouter.get('/:id', requirePermission('schedule:read'), async (req, res) => {
+  ok(res, await getSession(contextFrom(req), paramId(req)));
 });
 
-scheduleRouter.post('/', requirePermission('schedule:write'), (req, res) => {
-  created(res, createSessions(contextFrom(req), req.body));
+scheduleRouter.post('/', requirePermission('schedule:write'), async (req, res) => {
+  created(res, await createSessions(contextFrom(req), req.body));
 });
 
-scheduleRouter.put('/:id', requirePermission('schedule:write'), (req, res) => {
-  ok(res, updateSession(contextFrom(req), paramId(req), req.body));
+scheduleRouter.put('/:id', requirePermission('schedule:write'), async (req, res) => {
+  ok(res, await updateSession(contextFrom(req), paramId(req), req.body));
 });
 
-scheduleRouter.post('/:id/status', requirePermission('schedule:write'), (req, res) => {
-  ok(res, setSessionStatus(contextFrom(req), paramId(req), req.body));
+scheduleRouter.post('/:id/status', requirePermission('schedule:write'), async (req, res) => {
+  ok(res, await setSessionStatus(contextFrom(req), paramId(req), req.body));
 });
 
 export const attendanceRouter = Router();
 
 const rosterQuery = z.object({ batchId: idSchema, date: dateOnlySchema });
 
-attendanceRouter.get('/roster', requirePermission('attendance:read'), (req, res) => {
+attendanceRouter.get('/roster', requirePermission('attendance:read'), async (req, res) => {
   const q = parseQuery(rosterQuery, req);
-  ok(res, getRoster(contextFrom(req), q.batchId, q.date));
+  ok(res, await getRoster(contextFrom(req), q.batchId, q.date));
 });
 
-attendanceRouter.post('/', requirePermission('attendance:write'), (req, res) => {
-  ok(res, saveAttendance(contextFrom(req), req.body));
+attendanceRouter.post('/', requirePermission('attendance:write'), async (req, res) => {
+  ok(res, await saveAttendance(contextFrom(req), req.body));
 });
 
-attendanceRouter.get('/sessions', requirePermission('attendance:read'), (req, res) => {
-  ok(res, listAttendanceSessions(contextFrom(req), parseQuery(attendanceQuerySchema, req)));
+attendanceRouter.get('/sessions', requirePermission('attendance:read'), async (req, res) => {
+  ok(res, await listAttendanceSessions(contextFrom(req), parseQuery(attendanceQuerySchema, req)));
 });
 
-attendanceRouter.get('/summary', requirePermission('attendance:read'), (req, res) => {
-  ok(res, attendanceSummary(contextFrom(req), parseQuery(attendanceQuerySchema, req)));
+attendanceRouter.get('/summary', requirePermission('attendance:read'), async (req, res) => {
+  ok(res, await attendanceSummary(contextFrom(req), parseQuery(attendanceQuerySchema, req)));
 });

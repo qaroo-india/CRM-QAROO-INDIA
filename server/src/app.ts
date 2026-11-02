@@ -9,8 +9,9 @@
  *   2. security headers, CORS -- applied even to requests that fail early
  *   3. body/cookie parsing    -- with a size cap against oversized payloads
  *   4. rate limiting          -- before any route does real work
- *   5. routes
- *   6. 404, then the error handler, which must be registered last
+ *   5. institute settings     -- cached, re-read once a minute
+ *   6. routes
+ *   7. 404, then the error handler, which must be registered last
  */
 
 import cookieParser from 'cookie-parser';
@@ -20,11 +21,12 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/requestLogger';
 import { apiRateLimit, corsMiddleware, securityHeaders } from './middleware/security';
 import { v1Router } from './routes/v1';
+import { ensureSettings } from './services/settings';
 
 export function createApp(): Express {
   const app = express();
 
-  // Behind Render/a load balancer, the client IP arrives in X-Forwarded-For.
+  // Behind Vercel/Render/a load balancer, the client IP arrives in X-Forwarded-For.
   // The hop count must be exact -- see TRUST_PROXY in config/env.ts.
   app.set('trust proxy', env.TRUST_PROXY);
   app.disable('x-powered-by');
@@ -37,7 +39,7 @@ export function createApp(): Express {
   app.use(express.urlencoded({ extended: false, limit: '1mb' }));
   app.use(cookieParser());
 
-  app.use('/api/v1', apiRateLimit, v1Router);
+  app.use('/api/v1', apiRateLimit, ensureSettings, v1Router);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

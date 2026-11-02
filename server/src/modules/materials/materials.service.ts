@@ -60,59 +60,59 @@ function toDto(r: Row): MaterialDto {
 }
 
 /** Faculty: material for the courses they teach (course-wide) or their own batches. */
-function staffScope(ctx: RequestContext): SQL | undefined {
-  const ids = facultyBatchIds(ctx);
+async function staffScope(ctx: RequestContext): Promise<SQL | undefined> {
+  const ids = await facultyBatchIds(ctx);
   if (ids === null) return undefined;
   if (ids.length === 0) return sql`0`;
-  const courseIds = db.select({ courseId: batches.courseId }).from(batches).where(inArray(batches.id, ids)).all().map((b) => b.courseId);
+  const courseIds = (await db.select({ courseId: batches.courseId }).from(batches).where(inArray(batches.id, ids)).all()).map((b) => b.courseId);
   return or(inArray(materials.batchId, ids), and(isNull(materials.batchId), inArray(materials.courseId, courseIds)));
 }
 
-export function listMaterials(ctx: RequestContext, q: z.output<typeof materialListQuerySchema>) {
-  const conditions: (SQL | undefined)[] = [isNull(materials.deletedAt), staffScope(ctx)];
+export async function listMaterials(ctx: RequestContext, q: z.output<typeof materialListQuerySchema>) {
+  const conditions: (SQL | undefined)[] = [isNull(materials.deletedAt), await staffScope(ctx)];
   if (q.q) conditions.push(or(containsText(materials.title, q.q), containsText(materials.description, q.q)));
   if (q.courseId) conditions.push(eq(materials.courseId, q.courseId));
   if (q.batchId) conditions.push(eq(materials.batchId, q.batchId));
   if (q.kind) conditions.push(eq(materials.kind, q.kind));
   const where = and(...conditions);
-  const total = db.select({ n: count() }).from(materials).where(where).get()?.n ?? 0;
+  const total = (await db.select({ n: count() }).from(materials).where(where).get())?.n ?? 0;
   const { limit, offset } = pageWindow(q.page, q.limit);
-  return paginated(query(true).where(where).orderBy(desc(materials.createdAt)).limit(limit).offset(offset).all().map(toDto), total, q.page, q.limit);
+  return paginated((await query(true).where(where).orderBy(desc(materials.createdAt)).limit(limit).offset(offset).all()).map(toDto), total, q.page, q.limit);
 }
 
-function materialForStaff(ctx: RequestContext, id: string): Material {
-  const m = db.select().from(materials).where(and(eq(materials.id, id), isNull(materials.deletedAt), staffScope(ctx))).get();
+async function materialForStaff(ctx: RequestContext, id: string): Promise<Material> {
+  const m = await db.select().from(materials).where(and(eq(materials.id, id), isNull(materials.deletedAt), await staffScope(ctx))).get();
   if (!m) throw ApiError.notFound('Material');
   return m;
 }
 
-function assertTarget(ctx: RequestContext, courseId: string, batchId: string | undefined): void {
-  if (!db.select({ id: courses.id }).from(courses).where(eq(courses.id, courseId)).get()) throw ApiError.validation([{ path: 'courseId', message: 'Choose a valid course' }]);
+async function assertTarget(ctx: RequestContext, courseId: string, batchId: string | undefined): Promise<void> {
+  if (!await db.select({ id: courses.id }).from(courses).where(eq(courses.id, courseId)).get()) throw ApiError.validation([{ path: 'courseId', message: 'Choose a valid course' }]);
   if (batchId) {
-    const b = db.select({ courseId: batches.courseId }).from(batches).where(eq(batches.id, batchId)).get();
+    const b = await db.select({ courseId: batches.courseId }).from(batches).where(eq(batches.id, batchId)).get();
     if (!b || b.courseId !== courseId) throw ApiError.validation([{ path: 'batchId', message: 'That batch is not part of the course' }]);
   }
-  const ids = facultyBatchIds(ctx);
+  const ids = await facultyBatchIds(ctx);
   if (ids !== null) {
-    if (batchId ? !ids.includes(batchId) : !db.select({ id: batches.id }).from(batches).where(and(eq(batches.courseId, courseId), inArray(batches.id, ids.length ? ids : ['-']))).get()) {
+    if (batchId ? !ids.includes(batchId) : !await db.select({ id: batches.id }).from(batches).where(and(eq(batches.courseId, courseId), inArray(batches.id, ids.length ? ids : ['-']))).get()) {
       throw ApiError.forbidden('You can only share material with your own batches and courses.');
     }
   }
 }
 
-export function createMaterial(ctx: RequestContext, file: UploadedFile | undefined, raw: unknown): MaterialDto {
+export async function createMaterial(ctx: RequestContext, file: UploadedFile | undefined, raw: unknown): Promise<MaterialDto> {
   const input = materialSchema.parse(raw);
-  assertTarget(ctx, input.courseId, input.batchId);
+  await assertTarget(ctx, input.courseId, input.batchId);
   if (!file && !input.externalUrl) throw ApiError.validation([{ path: 'file', message: 'Upload a file or give a link' }]);
   let stored: { key: string; name: string; mime: string; size: number } | null = null;
   if (file) {
     const { ext, mime } = checkFile(file, MATERIAL_TYPES);
     const key = newKey('materials', ext);
-    saveFile(key, file.buffer);
+    await saveFile(key, file.buffer);
     stored = { key, name: file.originalname.replace(/[\\/\r\n\t"]/g, '_').slice(0, 200), mime, size: file.size };
   }
-  const id = db.transaction((tx) => {
-    const row = tx
+  const id = await db.transaction(async (tx) => {
+    const row = await tx
       .insert(materials)
       .values({
         title: input.title,
@@ -130,33 +130,33 @@ export function createMaterial(ctx: RequestContext, file: UploadedFile | undefin
       })
       .returning()
       .get();
-    recordAudit(tx, ctx, { action: 'create', entityType: 'material', entityId: row.id, summary: `Shared ${input.kind.replace('_', ' ')} "${input.title}"` });
+    await recordAudit(tx, ctx, { action: 'create', entityType: 'material', entityId: row.id, summary: `Shared ${input.kind.replace('_', ' ')} "${input.title}"` });
     return row.id;
   });
-  return toDto(query(true).where(eq(materials.id, id)).get()!);
+  return toDto((await query(true).where(eq(materials.id, id)).get())!);
 }
 
-export function updateMaterial(ctx: RequestContext, id: string, raw: unknown): MaterialDto {
-  const existing = materialForStaff(ctx, id);
+export async function updateMaterial(ctx: RequestContext, id: string, raw: unknown): Promise<MaterialDto> {
+  const existing = await materialForStaff(ctx, id);
   const input = materialSchema.parse(raw);
-  assertTarget(ctx, input.courseId, input.batchId);
+  await assertTarget(ctx, input.courseId, input.batchId);
   if (!existing.fileKey && !input.externalUrl) throw ApiError.validation([{ path: 'externalUrl', message: 'A link-only item needs its link' }]);
-  db.transaction((tx) => {
-    tx.update(materials)
+  await db.transaction(async (tx) => {
+    await tx.update(materials)
       .set({ title: input.title, description: input.description ?? null, kind: input.kind, courseId: input.courseId, batchId: input.batchId ?? null, externalUrl: input.externalUrl ?? null, isPublished: input.isPublished })
       .where(eq(materials.id, id))
       .run();
-    recordAudit(tx, ctx, { action: 'update', entityType: 'material', entityId: id, summary: `Updated material "${input.title}"${existing.isPublished !== input.isPublished ? (input.isPublished ? ' (published)' : ' (hidden)') : ''}` });
+    await recordAudit(tx, ctx, { action: 'update', entityType: 'material', entityId: id, summary: `Updated material "${input.title}"${existing.isPublished !== input.isPublished ? (input.isPublished ? ' (published)' : ' (hidden)') : ''}` });
   });
-  return toDto(query(true).where(eq(materials.id, id)).get()!);
+  return toDto((await query(true).where(eq(materials.id, id)).get())!);
 }
 
 /** Removed from every list; the file and row stay for the access log. */
-export function deleteMaterial(ctx: RequestContext, id: string): void {
-  const existing = materialForStaff(ctx, id);
-  db.transaction((tx) => {
-    tx.update(materials).set({ deletedAt: new Date() }).where(eq(materials.id, id)).run();
-    recordAudit(tx, ctx, { action: 'delete', entityType: 'material', entityId: id, summary: `Removed material "${existing.title}"` });
+export async function deleteMaterial(ctx: RequestContext, id: string): Promise<void> {
+  const existing = await materialForStaff(ctx, id);
+  await db.transaction(async (tx) => {
+    await tx.update(materials).set({ deletedAt: new Date() }).where(eq(materials.id, id)).run();
+    await recordAudit(tx, ctx, { action: 'delete', entityType: 'material', entityId: id, summary: `Removed material "${existing.title}"` });
   });
 }
 
@@ -173,38 +173,38 @@ function studentScope(studentId: string): SQL {
   )!;
 }
 
-export function portalMaterials(studentId: string): MaterialDto[] {
-  return query(false).where(studentScope(studentId)).orderBy(desc(materials.createdAt)).limit(500).all().map(toDto);
+export async function portalMaterials(studentId: string): Promise<MaterialDto[]> {
+  return (await query(false).where(studentScope(studentId)).orderBy(desc(materials.createdAt)).limit(500).all()).map(toDto);
 }
 
-function logOpen(materialId: string, userId: string): void {
-  db.insert(materialAccess).values({ materialId, userId, accessedAt: new Date() }).run();
+async function logOpen(materialId: string, userId: string): Promise<void> {
+  await db.insert(materialAccess).values({ materialId, userId, accessedAt: new Date() }).run();
 }
 
 /** Open (download or follow the link). `studentId` set: a student, checked against their courses. */
-export function openMaterial(ctx: RequestContext, id: string, studentId: string | null): { file: { buffer: Buffer; fileName: string; mimeType: string } | null; url: string | null } {
+export async function openMaterial(ctx: RequestContext, id: string, studentId: string | null): Promise<{ file: { buffer: Buffer; fileName: string; mimeType: string } | null; url: string | null }> {
   const m = studentId
-    ? db.select().from(materials).where(and(eq(materials.id, id), studentScope(studentId))).get()
-    : materialForStaff(ctx, id);
+    ? await db.select().from(materials).where(and(eq(materials.id, id), studentScope(studentId))).get()
+    : await materialForStaff(ctx, id);
   if (!m) throw ApiError.notFound('Material');
-  logOpen(m.id, ctx.actorId);
+  await logOpen(m.id, ctx.actorId);
   if (m.fileKey) {
-    const buffer = readStoredFile(m.fileKey);
+    const buffer = await readStoredFile(m.fileKey);
     if (!buffer) throw ApiError.conflict('The stored file is missing. Ask the institute to upload it again.', 'FILE_MISSING');
     return { file: { buffer, fileName: m.fileName ?? 'material', mimeType: m.fileMime ?? 'application/octet-stream' }, url: null };
   }
   return { file: null, url: m.externalUrl };
 }
 
-export function materialOpens(ctx: RequestContext, id: string) {
-  materialForStaff(ctx, id);
-  return db
+export async function materialOpens(ctx: RequestContext, id: string) {
+  await materialForStaff(ctx, id);
+  return (await db
     .select({ name: users.name, accountType: users.accountType, accessedAt: materialAccess.accessedAt })
     .from(materialAccess)
     .innerJoin(users, eq(users.id, materialAccess.userId))
     .where(eq(materialAccess.materialId, id))
     .orderBy(desc(materialAccess.accessedAt))
     .limit(200)
-    .all()
+    .all())
     .map((r) => ({ name: r.name, accountType: r.accountType, accessedAt: r.accessedAt.toISOString() }));
 }

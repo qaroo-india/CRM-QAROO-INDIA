@@ -93,31 +93,31 @@ function baseQuery(database: DbLike = db) {
     .leftJoin(counsellor, eq(counsellor.id, leads.counsellorId));
 }
 
-export function getLeadRow(id: string, database: DbLike = db): Lead {
-  const lead = database.select().from(leads).where(eq(leads.id, id)).get();
+export async function getLeadRow(id: string, database: DbLike = db): Promise<Lead> {
+  const lead = await database.select().from(leads).where(eq(leads.id, id)).get();
   if (!lead) throw ApiError.notFound('Lead');
   return lead;
 }
 
-function assertReferences(input: { leadSourceId?: string; interestedCourseId?: string; counsellorId?: string }): void {
-  if (input.leadSourceId && !db.select({ id: leadSources.id }).from(leadSources).where(eq(leadSources.id, input.leadSourceId)).get()) {
+async function assertReferences(input: { leadSourceId?: string; interestedCourseId?: string; counsellorId?: string }): Promise<void> {
+  if (input.leadSourceId && !await db.select({ id: leadSources.id }).from(leadSources).where(eq(leadSources.id, input.leadSourceId)).get()) {
     throw ApiError.validation([{ path: 'leadSourceId', message: 'Choose a valid lead source' }]);
   }
-  if (input.interestedCourseId && !db.select({ id: courses.id }).from(courses).where(eq(courses.id, input.interestedCourseId)).get()) {
+  if (input.interestedCourseId && !await db.select({ id: courses.id }).from(courses).where(eq(courses.id, input.interestedCourseId)).get()) {
     throw ApiError.validation([{ path: 'interestedCourseId', message: 'Choose a valid course' }]);
   }
-  if (input.counsellorId && !db.select({ id: users.id }).from(users).where(and(eq(users.id, input.counsellorId), eq(users.isActive, true))).get()) {
+  if (input.counsellorId && !await db.select({ id: users.id }).from(users).where(and(eq(users.id, input.counsellorId), eq(users.isActive, true))).get()) {
     throw ApiError.validation([{ path: 'counsellorId', message: 'Choose an active staff member' }]);
   }
 }
 
-function logActivity(
+async function logActivity(
   database: DbLike,
   ctx: RequestContext,
   leadId: string,
   entry: { type: LeadActivityDto['type']; note?: string | null; fromStatus?: string; toStatus?: string; metadata?: Record<string, unknown> },
-): void {
-  database
+): Promise<void> {
+  await database
     .insert(leadActivities)
     .values({
       leadId,
@@ -176,12 +176,12 @@ const SORTS: Record<string, SQLWrapper> = {
   priority: sql`case ${leads.priority} when 'high' then 3 when 'medium' then 2 else 1 end`,
 };
 
-export function listLeads(query: ListQuery) {
+export async function listLeads(query: ListQuery) {
   const where = and(...filters(query));
-  const total = db.select({ n: count() }).from(leads).where(where).get()?.n ?? 0;
+  const total = (await db.select({ n: count() }).from(leads).where(where).get())?.n ?? 0;
   const sortColumn = SORTS[query.sort ?? 'enquiryDate'] ?? leads.enquiryDate;
   const { limit, offset } = pageWindow(query.page, query.limit);
-  const rows = baseQuery()
+  const rows = await baseQuery()
     .where(where)
     .orderBy(query.order === 'asc' ? asc(sortColumn) : desc(sortColumn), desc(leads.id))
     .limit(limit)
@@ -191,11 +191,11 @@ export function listLeads(query: ListQuery) {
 }
 
 /** Every lead matching the list filters, for export. Capped so one request cannot stall the server. */
-export function leadsForExport(query: ListQuery, cap = 10_000): { rows: LeadDto[]; total: number } {
+export async function leadsForExport(query: ListQuery, cap = 10_000): Promise<{ rows: LeadDto[]; total: number }> {
   const where = and(...filters(query));
-  const total = db.select({ n: count() }).from(leads).where(where).get()?.n ?? 0;
+  const total = (await db.select({ n: count() }).from(leads).where(where).get())?.n ?? 0;
   const sortColumn = SORTS[query.sort ?? 'enquiryDate'] ?? leads.enquiryDate;
-  const rows = baseQuery()
+  const rows = await baseQuery()
     .where(where)
     .orderBy(query.order === 'asc' ? asc(sortColumn) : desc(sortColumn), desc(leads.id))
     .limit(cap)
@@ -204,33 +204,33 @@ export function leadsForExport(query: ListQuery, cap = 10_000): { rows: LeadDto[
 }
 
 /** Kanban: every status with its total and the most recently touched cards. */
-export function leadBoard(query: ListQuery, perColumn = 50): LeadBoardColumn[] {
+export async function leadBoard(query: ListQuery, perColumn = 50): Promise<LeadBoardColumn[]> {
   const base = filters(query, false);
-  return LEAD_STATUSES.map((status) => {
+  return (await Promise.all(LEAD_STATUSES.map(async (status) => {
     const where = and(...base, eq(leads.status, status));
-    const total = db.select({ n: count() }).from(leads).where(where).get()?.n ?? 0;
-    const rows = baseQuery().where(where).orderBy(desc(leads.updatedAt)).limit(perColumn).all();
+    const total = (await db.select({ n: count() }).from(leads).where(where).get())?.n ?? 0;
+    const rows = await baseQuery().where(where).orderBy(desc(leads.updatedAt)).limit(perColumn).all();
     return { status, total, leads: rows.map(toDto) };
-  });
+  })));
 }
 
 /** Leads by id (e.g. those linked to one student), newest enquiry first. */
-export function leadsByIds(ids: string[]): LeadDto[] {
+export async function leadsByIds(ids: string[]): Promise<LeadDto[]> {
   if (ids.length === 0) return [];
-  return baseQuery().where(inArray(leads.id, ids)).orderBy(desc(leads.enquiryDate)).all().map(toDto);
+  return (await baseQuery().where(inArray(leads.id, ids)).orderBy(desc(leads.enquiryDate)).all()).map(toDto);
 }
 
-export function getLead(id: string): LeadDetail {
-  const row = baseQuery().where(eq(leads.id, id)).get();
+export async function getLead(id: string): Promise<LeadDetail> {
+  const row = await baseQuery().where(eq(leads.id, id)).get();
   if (!row) throw ApiError.notFound('Lead');
-  const activities = db
+  const activities = await db
     .select({ activity: leadActivities, actorName: actor.name })
     .from(leadActivities)
     .leftJoin(actor, eq(actor.id, leadActivities.actorId))
     .where(eq(leadActivities.leadId, id))
     .orderBy(desc(leadActivities.occurredAt), desc(leadActivities.id))
     .all();
-  const admission = db.select({ id: admissions.id }).from(admissions).where(eq(admissions.leadId, id)).get();
+  const admission = await db.select({ id: admissions.id }).from(admissions).where(eq(admissions.leadId, id)).get();
   return {
     ...toDto(row),
     admissionId: admission?.id ?? null,
@@ -275,40 +275,40 @@ function columnsFrom(input: LeadInput) {
   };
 }
 
-export function createLead(ctx: RequestContext, raw: unknown): LeadDetail {
+export async function createLead(ctx: RequestContext, raw: unknown): Promise<LeadDetail> {
   const input = leadSchema.parse(raw);
-  assertReferences(input);
-  const id = db.transaction((tx) => {
-    const lead = tx
+  await assertReferences(input);
+  const id = await db.transaction(async (tx) => {
+    const lead = await tx
       .insert(leads)
-      .values({ ...columnsFrom(input), leadCode: nextCode(tx, getSettings().leadCodePrefix, input.enquiryDate), createdById: ctx.actorId })
+      .values({ ...columnsFrom(input), leadCode: await nextCode(tx, getSettings().leadCodePrefix, input.enquiryDate), createdById: ctx.actorId })
       .returning()
       .get();
-    if (lead.counsellorId) logActivity(tx, ctx, lead.id, { type: 'assignment', metadata: { counsellorId: lead.counsellorId } });
-    if (lead.followUpDate) logActivity(tx, ctx, lead.id, { type: 'follow_up_set', note: `Follow-up on ${lead.followUpDate}` });
-    recordAudit(tx, ctx, { action: 'create', entityType: 'lead', entityId: lead.id, summary: `Recorded enquiry ${lead.leadCode} from ${lead.name}`, after: lead });
+    if (lead.counsellorId) await logActivity(tx, ctx, lead.id, { type: 'assignment', metadata: { counsellorId: lead.counsellorId } });
+    if (lead.followUpDate) await logActivity(tx, ctx, lead.id, { type: 'follow_up_set', note: `Follow-up on ${lead.followUpDate}` });
+    await recordAudit(tx, ctx, { action: 'create', entityType: 'lead', entityId: lead.id, summary: `Recorded enquiry ${lead.leadCode} from ${lead.name}`, after: lead });
     return lead.id;
   });
-  return getLead(id);
+  return await getLead(id);
 }
 
-export function updateLead(ctx: RequestContext, id: string, raw: unknown): LeadDetail {
+export async function updateLead(ctx: RequestContext, id: string, raw: unknown): Promise<LeadDetail> {
   const input = leadSchema.parse(raw);
-  const existing = getLeadRow(id);
+  const existing = await getLeadRow(id);
   if (existing.status === 'converted' && input.leadSourceId !== existing.leadSourceId) {
     throw ApiError.conflict('The source of a converted lead cannot change: its admission is attributed to it.');
   }
-  assertReferences(input);
+  await assertReferences(input);
 
-  db.transaction((tx) => {
-    const updated = tx.update(leads).set(columnsFrom(input)).where(eq(leads.id, id)).returning().get();
+  await db.transaction(async (tx) => {
+    const updated = await tx.update(leads).set(columnsFrom(input)).where(eq(leads.id, id)).returning().get();
     if (updated.counsellorId !== existing.counsellorId) {
-      logActivity(tx, ctx, id, { type: 'assignment', metadata: { from: existing.counsellorId, to: updated.counsellorId } });
+      await logActivity(tx, ctx, id, { type: 'assignment', metadata: { from: existing.counsellorId, to: updated.counsellorId } });
     }
     if (updated.followUpDate !== existing.followUpDate && updated.followUpDate) {
-      logActivity(tx, ctx, id, { type: 'follow_up_set', note: `Follow-up on ${updated.followUpDate}` });
+      await logActivity(tx, ctx, id, { type: 'follow_up_set', note: `Follow-up on ${updated.followUpDate}` });
     }
-    recordAudit(tx, ctx, {
+    await recordAudit(tx, ctx, {
       action: 'update',
       entityType: 'lead',
       entityId: id,
@@ -316,19 +316,19 @@ export function updateLead(ctx: RequestContext, id: string, raw: unknown): LeadD
       ...diff(existing as unknown as Record<string, unknown>, updated as unknown as Record<string, unknown>),
     });
   });
-  return getLead(id);
+  return await getLead(id);
 }
 
-export function changeLeadStatus(ctx: RequestContext, id: string, raw: unknown): LeadDetail {
+export async function changeLeadStatus(ctx: RequestContext, id: string, raw: unknown): Promise<LeadDetail> {
   const input = leadStatusChangeSchema.parse(raw);
-  const existing = getLeadRow(id);
+  const existing = await getLeadRow(id);
   if (existing.status === 'converted') {
     throw ApiError.conflict('This lead has been converted to an admission; its status is final.');
   }
-  if (existing.status === input.status && !input.followUpDate) return getLead(id);
+  if (existing.status === input.status && !input.followUpDate) return await getLead(id);
 
-  db.transaction((tx) => {
-    tx.update(leads)
+  await db.transaction(async (tx) => {
+    await tx.update(leads)
       .set({
         status: input.status as Lead['status'],
         lostReason: ['lost', 'not_interested'].includes(input.status) ? (input.lostReason ?? null) : null,
@@ -337,10 +337,10 @@ export function changeLeadStatus(ctx: RequestContext, id: string, raw: unknown):
       .where(eq(leads.id, id))
       .run();
     if (existing.status !== input.status) {
-      logActivity(tx, ctx, id, { type: 'status_change', fromStatus: existing.status, toStatus: input.status, note: input.note ?? input.lostReason ?? null });
+      await logActivity(tx, ctx, id, { type: 'status_change', fromStatus: existing.status, toStatus: input.status, note: input.note ?? input.lostReason ?? null });
     }
-    if (input.followUpDate) logActivity(tx, ctx, id, { type: 'follow_up_set', note: `Follow-up on ${input.followUpDate}` });
-    recordAudit(tx, ctx, {
+    if (input.followUpDate) await logActivity(tx, ctx, id, { type: 'follow_up_set', note: `Follow-up on ${input.followUpDate}` });
+    await recordAudit(tx, ctx, {
       action: 'status_change',
       entityType: 'lead',
       entityId: id,
@@ -349,44 +349,44 @@ export function changeLeadStatus(ctx: RequestContext, id: string, raw: unknown):
       after: { status: input.status, lostReason: input.lostReason ?? null },
     });
   });
-  return getLead(id);
+  return await getLead(id);
 }
 
-export function addLeadActivity(ctx: RequestContext, id: string, raw: unknown): LeadDetail {
+export async function addLeadActivity(ctx: RequestContext, id: string, raw: unknown): Promise<LeadDetail> {
   const input = leadActivitySchema.parse(raw);
-  const existing = getLeadRow(id);
+  const existing = await getLeadRow(id);
 
-  db.transaction((tx) => {
-    logActivity(tx, ctx, id, { type: input.type, note: input.note });
+  await db.transaction(async (tx) => {
+    await logActivity(tx, ctx, id, { type: input.type, note: input.note });
     // Logging real contact moves a brand-new lead forward automatically.
     if (existing.status === 'new' && input.type !== 'note') {
-      tx.update(leads).set({ status: 'contacted' }).where(eq(leads.id, id)).run();
-      logActivity(tx, ctx, id, { type: 'status_change', fromStatus: 'new', toStatus: 'contacted' });
+      await tx.update(leads).set({ status: 'contacted' }).where(eq(leads.id, id)).run();
+      await logActivity(tx, ctx, id, { type: 'status_change', fromStatus: 'new', toStatus: 'contacted' });
     }
     if (input.followUpDate) {
-      tx.update(leads).set({ followUpDate: input.followUpDate }).where(eq(leads.id, id)).run();
-      logActivity(tx, ctx, id, { type: 'follow_up_set', note: `Follow-up on ${input.followUpDate}` });
+      await tx.update(leads).set({ followUpDate: input.followUpDate }).where(eq(leads.id, id)).run();
+      await logActivity(tx, ctx, id, { type: 'follow_up_set', note: `Follow-up on ${input.followUpDate}` });
     } else {
       // Touching the lead counts as activity for "recently updated" ordering.
-      tx.update(leads).set({ updatedAt: new Date() }).where(eq(leads.id, id)).run();
+      await tx.update(leads).set({ updatedAt: new Date() }).where(eq(leads.id, id)).run();
     }
   });
-  return getLead(id);
+  return await getLead(id);
 }
 
-export function assignLeads(ctx: RequestContext, raw: unknown): { updated: number } {
+export async function assignLeads(ctx: RequestContext, raw: unknown): Promise<{ updated: number }> {
   const input = bulkAssignSchema.parse(raw);
-  assertReferences({ counsellorId: input.counsellorId });
-  const targets = db.select().from(leads).where(inArray(leads.id, input.leadIds)).all();
+  await assertReferences({ counsellorId: input.counsellorId });
+  const targets = await db.select().from(leads).where(inArray(leads.id, input.leadIds)).all();
   if (targets.length !== input.leadIds.length) throw ApiError.notFound('One or more leads');
 
-  db.transaction((tx) => {
+  await db.transaction(async (tx) => {
     for (const lead of targets) {
       if (lead.counsellorId === input.counsellorId) continue;
-      tx.update(leads).set({ counsellorId: input.counsellorId }).where(eq(leads.id, lead.id)).run();
-      logActivity(tx, ctx, lead.id, { type: 'assignment', metadata: { from: lead.counsellorId, to: input.counsellorId } });
+      await tx.update(leads).set({ counsellorId: input.counsellorId }).where(eq(leads.id, lead.id)).run();
+      await logActivity(tx, ctx, lead.id, { type: 'assignment', metadata: { from: lead.counsellorId, to: input.counsellorId } });
     }
-    recordAudit(tx, ctx, {
+    await recordAudit(tx, ctx, {
       action: 'update',
       entityType: 'lead',
       summary: `Assigned ${targets.length} lead(s) to a counsellor`,
@@ -397,12 +397,12 @@ export function assignLeads(ctx: RequestContext, raw: unknown): { updated: numbe
 }
 
 /** Called by the admissions service inside its transaction. */
-export function markLeadConverted(tx: DbLike, ctx: RequestContext, lead: Lead, studentId: string, admissionDate: string, admissionNumber: string): void {
-  tx.update(leads)
+export async function markLeadConverted(tx: DbLike, ctx: RequestContext, lead: Lead, studentId: string, admissionDate: string, admissionNumber: string): Promise<void> {
+  await tx.update(leads)
     .set({ status: 'converted', convertedOn: admissionDate, studentId, lostReason: null })
     .where(eq(leads.id, lead.id))
     .run();
-  logActivity(tx, ctx, lead.id, {
+  await logActivity(tx, ctx, lead.id, {
     type: 'conversion',
     fromStatus: lead.status,
     toStatus: 'converted',

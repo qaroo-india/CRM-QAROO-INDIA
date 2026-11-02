@@ -27,7 +27,7 @@ import { db } from '../../db';
 import { expenseCategories, INSTITUTE_SETTINGS_ID, instituteSettings, jobCategories, leadSources } from '../../db/schema';
 import { requirePermission } from '../../middleware/auth';
 import { diff, recordAudit } from '../../services/audit';
-import { getSettings, invalidateSettings } from '../../services/settings';
+import { getSettings, loadSettings } from '../../services/settings';
 import { ApiError } from '../../utils/ApiError';
 import { contextFrom } from '../../utils/context';
 import { created, ok } from '../../utils/respond';
@@ -40,19 +40,19 @@ settingsRouter.get('/', (_req, res) => {
   ok(res, toInstituteInfo(getSettings()));
 });
 
-settingsRouter.patch('/', requirePermission('settings:write'), (req, res) => {
+settingsRouter.patch('/', requirePermission('settings:write'), async (req, res) => {
   const input = parseBody(updateSettingsSchema, req);
   const ctx = contextFrom(req);
   const before = getSettings();
 
-  const updated = db.transaction((tx) => {
-    const row = tx
+  const updated = await db.transaction(async (tx) => {
+    const row = await tx
       .update(instituteSettings)
       .set({ ...input, updatedById: ctx.actorId })
       .where(eq(instituteSettings.id, INSTITUTE_SETTINGS_ID))
       .returning()
       .get();
-    recordAudit(tx, ctx, {
+    await recordAudit(tx, ctx, {
       action: 'update',
       entityType: 'settings',
       entityId: INSTITUTE_SETTINGS_ID,
@@ -62,7 +62,8 @@ settingsRouter.patch('/', requirePermission('settings:write'), (req, res) => {
     return row;
   });
 
-  invalidateSettings();
+  // Other server instances pick the change up within a minute (ensureSettings).
+  await loadSettings();
   ok(res, toInstituteInfo(updated));
 });
 
@@ -97,9 +98,9 @@ for (const lookup of LOOKUPS) {
   const t = lookup.table;
   const base = `/${lookup.path}`;
 
-  settingsRouter.get(base, (req, res) => {
+  settingsRouter.get(base, async (req, res) => {
     const { includeInactive } = includeInactiveQuery.parse(req.query);
-    const rows = db
+    const rows = await db
       .select()
       .from(t)
       .where(includeInactive === 'true' ? undefined : eq(t.isActive, true))
@@ -108,26 +109,26 @@ for (const lookup of LOOKUPS) {
     ok(res, rows as LookupItem[]);
   });
 
-  settingsRouter.post(base, requirePermission('settings:write'), (req, res) => {
+  settingsRouter.post(base, requirePermission('settings:write'), async (req, res) => {
     const schema = lookup.createExtras ? lookupCreateSchema.extend(lookup.createExtras.shape) : lookupCreateSchema;
     const input = schema.parse(req.body ?? {}) as z.infer<typeof lookupCreateSchema> & { track?: string };
     const ctx = contextFrom(req);
 
-    const duplicate = db
+    const duplicate = await db
       .select({ id: t.id })
       .from(t)
       .where(sql`lower(${t.name}) = lower(${input.name})`)
       .get();
     if (duplicate) throw ApiError.conflict(`A ${lookup.label} named "${input.name}" already exists.`);
 
-    const row = db.transaction((tx) => {
-      const maxOrder = tx.select({ max: sql<number>`coalesce(max(${t.sortOrder}), 0)` }).from(t).get()?.max ?? 0;
-      const inserted = tx
+    const row = await db.transaction(async (tx) => {
+      const maxOrder = (await tx.select({ max: sql<number>`coalesce(max(${t.sortOrder}), 0)` }).from(t).get())?.max ?? 0;
+      const inserted = await tx
         .insert(t)
         .values({ ...input, sortOrder: maxOrder + 1 } as never)
         .returning()
         .get();
-      recordAudit(tx, ctx, {
+      await recordAudit(tx, ctx, {
         action: 'create',
         entityType: lookup.path,
         entityId: inserted.id,
@@ -139,15 +140,15 @@ for (const lookup of LOOKUPS) {
     created(res, row);
   });
 
-  settingsRouter.patch(`${base}/:id`, requirePermission('settings:write'), (req, res) => {
+  settingsRouter.patch(`${base}/:id`, requirePermission('settings:write'), async (req, res) => {
     const id = paramId(req);
     const input = parseBody(lookupUpdateSchema, req);
     const ctx = contextFrom(req);
-    const existing = db.select().from(t).where(eq(t.id, id)).get();
+    const existing = await db.select().from(t).where(eq(t.id, id)).get();
     if (!existing) throw ApiError.notFound(lookup.label);
 
     if (input.name) {
-      const clash = db
+      const clash = await db
         .select({ id: t.id })
         .from(t)
         .where(and(sql`lower(${t.name}) = lower(${input.name})`, sql`${t.id} <> ${id}`))
@@ -155,9 +156,9 @@ for (const lookup of LOOKUPS) {
       if (clash) throw ApiError.conflict(`A ${lookup.label} named "${input.name}" already exists.`);
     }
 
-    const row = db.transaction((tx) => {
-      const updated = tx.update(t).set(input).where(eq(t.id, id)).returning().get();
-      recordAudit(tx, ctx, {
+    const row = await db.transaction(async (tx) => {
+      const updated = await tx.update(t).set(input).where(eq(t.id, id)).returning().get();
+      await recordAudit(tx, ctx, {
         action: 'update',
         entityType: lookup.path,
         entityId: id,
@@ -169,12 +170,12 @@ for (const lookup of LOOKUPS) {
     ok(res, row);
   });
 
-  settingsRouter.post(`${base}/reorder`, requirePermission('settings:write'), (req, res) => {
+  settingsRouter.post(`${base}/reorder`, requirePermission('settings:write'), async (req, res) => {
     const { ids } = parseBody(reorderSchema, req);
-    db.transaction((tx) => {
-      ids.forEach((id, index) => {
-        tx.update(t).set({ sortOrder: index + 1 }).where(eq(t.id, id)).run();
-      });
+    await db.transaction(async (tx) => {
+      for (const [index, id] of ids.entries()) {
+        await tx.update(t).set({ sortOrder: index + 1 }).where(eq(t.id, id)).run();
+      }
     });
     ok(res, { reordered: ids.length });
   });

@@ -3,7 +3,7 @@
  *
  * Readiness answers "can this instance do real work right now?" by probing
  * three things a working deployment needs, in order:
- *   1. database   -- the file opens and answers a query
+ *   1. database   -- the database answers a query
  *   2. migrations -- the schema matches the committed migrations
  *   3. settings   -- reference data has been seeded
  * Each probe reports its own status, so the response says exactly which setup
@@ -14,7 +14,7 @@ import { performance } from 'node:perf_hooks';
 import type { DependencyHealth, HealthResponse, HealthState } from '@ims/shared';
 import { and, count, eq } from 'drizzle-orm';
 import { env } from '../../config/env';
-import { db, sqlite } from '../../db';
+import { client, db } from '../../db';
 import { getMigrationStatus } from '../../db/migrator';
 import { INSTITUTE_SETTINGS_ID, instituteSettings, users } from '../../db/schema';
 import packageJson from '../../../package.json' with { type: 'json' };
@@ -25,11 +25,11 @@ function elapsedMs(start: number): number {
   return Math.round((performance.now() - start) * 100) / 100;
 }
 
-function checkDatabase(): DependencyHealth {
+async function checkDatabase(): Promise<DependencyHealth> {
   const start = performance.now();
   try {
-    sqlite.prepare('select 1').get();
-    return { name: 'database', status: 'ok', latencyMs: elapsedMs(start), detail: 'SQLite responding' };
+    await client.execute('select 1');
+    return { name: 'database', status: 'ok', latencyMs: elapsedMs(start), detail: 'Database responding' };
   } catch {
     // The error itself is logged by the caller; never echo driver messages,
     // which can include file system paths.
@@ -37,9 +37,9 @@ function checkDatabase(): DependencyHealth {
   }
 }
 
-function checkMigrations(): DependencyHealth {
+async function checkMigrations(): Promise<DependencyHealth> {
   const start = performance.now();
-  const status = getMigrationStatus(sqlite);
+  const status = await getMigrationStatus(client);
   const latencyMs = elapsedMs(start);
 
   if (status.available === 0) {
@@ -66,10 +66,10 @@ function checkMigrations(): DependencyHealth {
   };
 }
 
-function checkSettings(): { health: DependencyHealth; timezone: string | null } {
+async function checkSettings(): Promise<{ health: DependencyHealth; timezone: string | null }> {
   const start = performance.now();
   try {
-    const row = db
+    const row = await db
       .select({ timezone: instituteSettings.timezone })
       .from(instituteSettings)
       .where(eq(instituteSettings.id, INSTITUTE_SETTINGS_ID))
@@ -104,15 +104,15 @@ function checkSettings(): { health: DependencyHealth; timezone: string | null } 
   }
 }
 
-function checkAccounts(): DependencyHealth {
+async function checkAccounts(): Promise<DependencyHealth> {
   const start = performance.now();
   try {
     const owners =
-      db
+      (await db
         .select({ n: count() })
         .from(users)
         .where(and(eq(users.role, 'owner'), eq(users.isActive, true)))
-        .get()?.n ?? 0;
+        .get())?.n ?? 0;
     return owners > 0
       ? { name: 'accounts', status: 'ok', latencyMs: elapsedMs(start), detail: 'An active owner account exists' }
       : {
@@ -126,18 +126,18 @@ function checkAccounts(): DependencyHealth {
   }
 }
 
-export function getReadiness(): HealthResponse {
-  const database = checkDatabase();
+export async function getReadiness(): Promise<HealthResponse> {
+  const database = await checkDatabase();
 
   // Without a database the remaining probes can only fail the same way.
   const dependencies: DependencyHealth[] = [database];
   let timezone: string | null = null;
 
   if (database.status !== 'down') {
-    dependencies.push(checkMigrations());
-    const settings = checkSettings();
+    dependencies.push(await checkMigrations());
+    const settings = await checkSettings();
     dependencies.push(settings.health);
-    dependencies.push(checkAccounts());
+    dependencies.push(await checkAccounts());
     timezone = settings.timezone;
   }
 

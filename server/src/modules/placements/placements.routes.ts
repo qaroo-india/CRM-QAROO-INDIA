@@ -38,25 +38,25 @@ import {
 
 export const placementsRouter = Router();
 
-placementsRouter.get('/profiles', requirePermission('placements:read'), (req, res) => ok(res, listProfiles(parseQuery(profileListQuerySchema, req))));
-placementsRouter.get('/profiles/:id', requirePermission('placements:read'), (req, res) => ok(res, getProfile(paramId(req))));
-placementsRouter.post('/profiles', requirePermission('placements:write'), (req, res) => created(res, createProfile(contextFrom(req), req.body)));
-placementsRouter.put('/profiles/:id', requirePermission('placements:write'), (req, res) => ok(res, updateProfile(contextFrom(req), paramId(req), req.body)));
-placementsRouter.post('/profiles/:id/stage', requirePermission('placements:write'), (req, res) => ok(res, setStage(contextFrom(req), paramId(req), req.body)));
+placementsRouter.get('/profiles', requirePermission('placements:read'), async (req, res) => ok(res, await listProfiles(parseQuery(profileListQuerySchema, req))));
+placementsRouter.get('/profiles/:id', requirePermission('placements:read'), async (req, res) => ok(res, await getProfile(paramId(req))));
+placementsRouter.post('/profiles', requirePermission('placements:write'), async (req, res) => created(res, await createProfile(contextFrom(req), req.body)));
+placementsRouter.put('/profiles/:id', requirePermission('placements:write'), async (req, res) => ok(res, await updateProfile(contextFrom(req), paramId(req), req.body)));
+placementsRouter.post('/profiles/:id/stage', requirePermission('placements:write'), async (req, res) => ok(res, await setStage(contextFrom(req), paramId(req), req.body)));
 
-placementsRouter.get('/applications', requirePermission('placements:read'), (req, res) => ok(res, listApplications(parseQuery(applicationListQuerySchema, req))));
-placementsRouter.post('/applications', requirePermission('placements:write'), (req, res) => created(res, createApplication(contextFrom(req), req.body)));
-placementsRouter.post('/applications/:id/outcome', requirePermission('placements:write'), (req, res) => {
+placementsRouter.get('/applications', requirePermission('placements:read'), async (req, res) => ok(res, await listApplications(parseQuery(applicationListQuerySchema, req))));
+placementsRouter.post('/applications', requirePermission('placements:write'), async (req, res) => created(res, await createApplication(contextFrom(req), req.body)));
+placementsRouter.post('/applications/:id/outcome', requirePermission('placements:write'), async (req, res) => {
   const ctx = contextFrom(req);
   if (['offer_received', 'offer_declined', 'joined'].includes(req.body?.outcome) && !hasPermission(ctx.permissions, 'placements:offer')) {
     throw ApiError.forbidden('Recording offers and joining needs the "placements:offer" permission.');
   }
-  ok(res, setOutcome(ctx, paramId(req), req.body));
+  ok(res, await setOutcome(ctx, paramId(req), req.body));
 });
-placementsRouter.post('/applications/:id/interviews', requirePermission('placements:write'), (req, res) => created(res, addInterview(contextFrom(req), paramId(req), req.body)));
-placementsRouter.post('/interviews/:id/result', requirePermission('placements:write'), (req, res) => ok(res, setInterviewResult(contextFrom(req), paramId(req), req.body)));
+placementsRouter.post('/applications/:id/interviews', requirePermission('placements:write'), async (req, res) => created(res, await addInterview(contextFrom(req), paramId(req), req.body)));
+placementsRouter.post('/interviews/:id/result', requirePermission('placements:write'), async (req, res) => ok(res, await setInterviewResult(contextFrom(req), paramId(req), req.body)));
 
-placementsRouter.get('/companies', requirePermission('placements:read'), (_req, res) => ok(res, listCompanies()));
-placementsRouter.post('/companies', requirePermission('placements:write'), (req, res) => created(res, createCompany(contextFrom(req), req.body)));
+placementsRouter.get('/companies', requirePermission('placements:read'), async (_req, res) => ok(res, await listCompanies()));
+placementsRouter.post('/companies', requirePermission('placements:write'), async (req, res) => created(res, await createCompany(contextFrom(req), req.body)));
 
-placementsRouter.get('/analytics', requirePermission('placements:read'), (req, res) => ok(res, placementAnalytics(req.query)));
+placementsRouter.get('/analytics', requirePermission('placements:read'), async (req, res) => ok(res, await placementAnalytics(req.query)));

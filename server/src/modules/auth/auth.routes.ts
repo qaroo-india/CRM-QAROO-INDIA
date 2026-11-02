@@ -56,9 +56,9 @@ function meta(req: Request) {
   return { ip: req.ip, userAgent: req.get('user-agent') ?? undefined };
 }
 
-function sessionBody(req: Request, res: Response, session: IssuedSession): SessionResponse {
+async function sessionBody(req: Request, res: Response, session: IssuedSession): Promise<SessionResponse> {
   return {
-    user: toSessionUser(session.user),
+    user: await toSessionUser(session.user),
     institute: toInstituteInfo(getSettings()),
     csrfToken: ensureCsrfToken(req, res),
   };
@@ -73,7 +73,7 @@ authRouter.post('/login', loginLimiter, async (req, res) => {
   const input = parseBody(loginSchema, req);
   const session = await withAccessToken(await login(input, meta(req)));
   setSessionCookies(res, session.accessToken, session.refresh);
-  ok(res, sessionBody(req, res, session));
+  ok(res, await sessionBody(req, res, session));
 });
 
 authRouter.post('/refresh', async (req, res) => {
@@ -85,25 +85,25 @@ authRouter.post('/refresh', async (req, res) => {
   try {
     const session = await refreshSession(presented, meta(req));
     setSessionCookies(res, session.accessToken, session.refresh);
-    ok(res, sessionBody(req, res, session));
+    ok(res, await sessionBody(req, res, session));
   } catch (error) {
     clearSessionCookies(res);
     throw error;
   }
 });
 
-authRouter.post('/logout', (req, res) => {
+authRouter.post('/logout', async (req, res) => {
   const presented = req.cookies?.[REFRESH_COOKIE];
-  if (typeof presented === 'string' && presented) revokeRefreshFamily(presented);
+  if (typeof presented === 'string' && presented) await revokeRefreshFamily(presented);
   clearSessionCookies(res);
   ok(res, { signedOut: true });
 });
 
-authRouter.get('/me', authenticate, (req, res) => {
+authRouter.get('/me', authenticate, async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const user = req.auth!.user;
   ok(res, {
-    user: toSessionUser(user),
+    user: await toSessionUser(user),
     institute: toInstituteInfo(getSettings()),
     csrfToken: ensureCsrfToken(req, res),
   } satisfies SessionResponse);
@@ -113,7 +113,7 @@ authRouter.post('/password', authenticate, async (req, res) => {
   const input = parseBody(changePasswordSchema, req);
   const session = await changePassword(contextFrom(req), input, meta(req));
   setSessionCookies(res, session.accessToken, session.refresh);
-  ok(res, sessionBody(req, res, session));
+  ok(res, await sessionBody(req, res, session));
 });
 
 authRouter.post('/forgot-password', selfServiceLimiter, async (req, res) => {

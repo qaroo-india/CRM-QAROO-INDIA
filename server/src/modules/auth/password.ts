@@ -18,8 +18,8 @@ const OWASP_PROFILE = { memoryCost: 19_456, timeCost: 2, parallelism: 1 } as con
 const TEST_PROFILE = { memoryCost: 1_024, timeCost: 1, parallelism: 1 } as const;
 const OPTIONS = isTest ? TEST_PROFILE : OWASP_PROFILE;
 
-export function hashPassword(password: string): Promise<string> {
-  return hash(password, OPTIONS);
+export async function hashPassword(password: string): Promise<string> {
+  return await hash(password, OPTIONS);
 }
 
 export async function verifyPassword(passwordHash: string, password: string): Promise<boolean> {

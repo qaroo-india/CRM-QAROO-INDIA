@@ -26,7 +26,7 @@ function matchedOn(row: { phoneNormalized: string; email: string | null }, phone
   return on;
 }
 
-export function findDuplicates(query: DuplicateQuery): DuplicateMatch[] {
+export async function findDuplicates(query: DuplicateQuery): Promise<DuplicateMatch[]> {
   const phone = query.phone ? normalisePhone(query.phone) : null;
   const email = query.email?.trim().toLowerCase() || null;
   if ((!phone || phone.length < 7) && !email) return [];
@@ -38,13 +38,13 @@ export function findDuplicates(query: DuplicateQuery): DuplicateMatch[] {
   if (phone && phone.length >= 7) studentConditions.push(eq(students.phoneNormalized, phone));
   if (email) studentConditions.push(sql`lower(${students.email}) = ${email}`);
 
-  const leadRows = db
+  const leadRows = await db
     .select()
     .from(leads)
     .where(and(or(...leadConditions), query.excludeLeadId ? ne(leads.id, query.excludeLeadId) : undefined))
     .limit(10)
     .all();
-  const studentRows = db
+  const studentRows = await db
     .select()
     .from(students)
     .where(and(or(...studentConditions), query.excludeStudentId ? ne(students.id, query.excludeStudentId) : undefined))
@@ -75,6 +75,6 @@ export function findDuplicates(query: DuplicateQuery): DuplicateMatch[] {
   ];
 }
 
-export function findDuplicateStudents(phone: string, email?: string, excludeStudentId?: string): DuplicateMatch[] {
-  return findDuplicates({ phone, email, excludeStudentId }).filter((m) => m.kind === 'student');
+export async function findDuplicateStudents(phone: string, email?: string, excludeStudentId?: string): Promise<DuplicateMatch[]> {
+  return (await findDuplicates({ phone, email, excludeStudentId })).filter((m) => m.kind === 'student');
 }

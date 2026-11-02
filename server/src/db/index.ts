@@ -1,69 +1,103 @@
 /**
- * Database connection.
+ * Database connection: libSQL (the SQLite engine Turso runs).
  *
- * Together with ./dialect.ts, this is the only dialect-specific code in the
- * server. Turso/libSQL would swap the driver import here; Postgres would swap
- * it here and in the dialect module.
+ *   - Locally the database is a file (`./data/institute.db`), the same SQLite
+ *     file format as before.
+ *   - In production it is Turso, a hosted libSQL database reached over the
+ *     network (`libsql://...` plus an auth token), because serverless hosts
+ *     such as Vercel have no disk that survives between requests.
  *
- * better-sqlite3 is SYNCHRONOUS by design. That is a feature for a ledger:
- * a `db.transaction()` callback cannot be interleaved with another request's
- * writes, so there is no window between "read the balance" and "write the
- * payment" for a concurrent request to slip into. The flip side, which every
- * service must respect: transaction callbacks must not be `async`.
+ * Every query is asynchronous. Work that must not interleave with other writes
+ * runs in `db.transaction(async (tx) => ...)`: libSQL opens it as a WRITE
+ * transaction (BEGIN IMMEDIATE), so no other writer can commit until it ends
+ * and there is still no window between "read the balance" and "write the
+ * payment". Inside a transaction, read and write through `tx` only: the plain
+ * `db` uses another connection and would not see the transaction's own writes.
+ *
+ * libSQL enforces foreign keys on every connection by default.
  */
 
-import { mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import Database from 'better-sqlite3';
-import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+import { mkdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import type { Client } from '@libsql/client';
+import type { LibSQLDatabase } from 'drizzle-orm/libsql';
+// Wraps a client we create; this entry never loads libSQL's native engine.
+import { drizzle } from 'drizzle-orm/libsql/web';
 import { env } from '../config/env';
+import { serverPath } from '../config/paths';
 import * as schema from './schema';
 
 /** Generated SQL migrations, committed to Git and applied in order. */
-export const MIGRATIONS_FOLDER = resolve(process.cwd(), 'drizzle');
+export const MIGRATIONS_FOLDER = serverPath('drizzle');
 
-export type Db = BetterSQLite3Database<typeof schema>;
+export type Db = LibSQLDatabase<typeof schema>;
 
 export interface DatabaseHandle {
-  sqlite: Database.Database;
+  client: Client;
   db: Db;
-  /** Absolute file path, or ":memory:". Safe to log -- contains no credentials. */
+  /** File path or remote host. Safe to log -- contains no credentials. */
   location: string;
+  remote: boolean;
 }
 
-export function openDatabase(url: string): DatabaseHandle {
-  const isMemory = url === ':memory:';
-  const location = isMemory ? ':memory:' : resolve(process.cwd(), url);
+const REMOTE_URL = /^(libsql|https?|wss?):\/\//i;
 
-  if (!isMemory) {
-    mkdirSync(dirname(location), { recursive: true });
+/** Wait up to 5 s for another writer instead of failing with SQLITE_BUSY. */
+const BUSY_TIMEOUT_MS = 5000;
+
+/**
+ * The client is imported on demand: the default build loads libSQL's native
+ * engine as soon as it is imported, which a hosted database never needs (and
+ * a serverless bundle may not ship). Remote databases use the HTTP client.
+ */
+export async function openDatabase(url: string, authToken?: string): Promise<DatabaseHandle> {
+  if (REMOTE_URL.test(url)) {
+    const { createClient } = await import('@libsql/client/web');
+    const client = createClient({ url, authToken });
+    return { client, db: drizzle({ client, schema }), location: new URL(url).host, remote: true };
   }
 
-  const sqlite = new Database(location);
+  // ":memory:" (the automated tests): a private temporary file instead, so
+  // transactions get their own connection exactly as in production.
+  const isMemory = url === ':memory:';
+  const path = isMemory ? join(tmpdir(), `ims-test-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.db`) : resolve(process.cwd(), url);
+  mkdirSync(dirname(path), { recursive: true });
+  if (isMemory) {
+    process.once('exit', () => {
+      for (const suffix of ['', '-wal', '-shm']) {
+        try {
+          rmSync(path + suffix, { force: true });
+        } catch {
+          // Windows may still hold the file; the OS temp folder is cleaned eventually.
+        }
+      }
+    });
+  }
 
-  // Write-ahead logging: readers never block the single writer and vice versa,
-  // so a dashboard query does not stall a payment being recorded.
-  sqlite.pragma('journal_mode = WAL');
-  // Durable under WAL (a power cut can lose only the last un-checkpointed
-  // commit, never corrupt the file) and far faster than FULL.
-  sqlite.pragma('synchronous = NORMAL');
-  // SQLite ships with foreign keys DISABLED for backwards compatibility.
-  // Without this line every .references() in the schema is decorative.
-  sqlite.pragma('foreign_keys = ON');
-  // Wait up to 5s for a lock instead of failing instantly with SQLITE_BUSY.
-  sqlite.pragma('busy_timeout = 5000');
-  sqlite.pragma('temp_store = MEMORY');
-
-  const db = drizzle({ client: sqlite, schema });
-  return { sqlite, db, location };
+  const { createClient } = await import('@libsql/client');
+  const client = createClient({ url: pathToFileURL(isAbsolute(path) ? path : resolve(path)).href, timeout: BUSY_TIMEOUT_MS });
+  return { client, db: drizzle({ client, schema }), location: isMemory ? ':memory:' : path, remote: false };
 }
 
-const handle = openDatabase(env.DATABASE_URL);
+const handle = await openDatabase(env.DATABASE_URL, env.DATABASE_AUTH_TOKEN);
 
-export const sqlite = handle.sqlite;
+export const client = handle.client;
 export const db = handle.db;
 export const databaseLocation = handle.location;
+export const isRemoteDatabase = handle.remote;
+
+/**
+ * One-time settings for a local database file. Write-ahead logging lets
+ * readers and the single writer work side by side; it is stored in the file.
+ * (Turso manages this itself.)
+ */
+export async function prepareDatabase(): Promise<void> {
+  if (isRemoteDatabase) return;
+  await client.execute('PRAGMA journal_mode = WAL');
+}
 
 export function closeDatabase(): void {
-  if (sqlite.open) sqlite.close();
+  if (!client.closed) client.close();
 }

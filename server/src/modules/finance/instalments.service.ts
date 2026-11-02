@@ -17,7 +17,7 @@ const i = alias(instalments, 'i');
 
 type Query = z.output<typeof instalmentListQuerySchema>;
 
-export function listInstalments(query: Query) {
+export async function listInstalments(query: Query) {
   const today = instituteToday();
   const paid = instalmentPaidSql();
   const remaining = sql<number>`max(0, ${i.amountMinor} - ${paid})`;
@@ -74,7 +74,7 @@ export function listInstalments(query: Query) {
       .innerJoin(students, eq(students.id, admissions.studentId))
       .innerJoin(courses, eq(courses.id, admissions.courseId));
 
-  const totals = db
+  const totals = (await db
     .select({
       n: count(),
       due: sql<number>`coalesce(sum(${i.amountMinor}), 0)`.mapWith(Number),
@@ -84,11 +84,11 @@ export function listInstalments(query: Query) {
     .innerJoin(admissions, eq(admissions.id, i.admissionId))
     .innerJoin(students, eq(students.id, admissions.studentId))
     .where(where)
-    .get()!;
+    .get())!;
 
   const { limit, offset } = pageWindow(query.page, query.limit);
   const ascending = query.order === 'asc' || (query.view !== 'paid' && !query.sort);
-  const rows = base()
+  const rows = await base()
     .where(where)
     .orderBy(ascending ? asc(i.dueDate) : desc(i.dueDate), asc(i.sequence))
     .limit(limit)

@@ -32,8 +32,8 @@ export interface SeedResult {
   inserted: number;
 }
 
-export function seedInstituteSettings(database: Db | Tx): SeedResult {
-  const result = database
+export async function seedInstituteSettings(database: Db | Tx): Promise<SeedResult> {
+  const result = await database
     .insert(instituteSettings)
     .values({
       id: INSTITUTE_SETTINGS_ID,
@@ -45,38 +45,38 @@ export function seedInstituteSettings(database: Db | Tx): SeedResult {
     .onConflictDoNothing({ target: instituteSettings.id })
     .run();
 
-  return { name: 'institute_settings', inserted: result.changes };
+  return { name: 'institute_settings', inserted: result.rowsAffected };
 }
 
 /** Insert names that are not present yet (case-insensitive), preserving order. */
-function seedNames(
+async function seedNames(
   database: Db | Tx,
   name: string,
   table: typeof leadSources | typeof expenseCategories,
   values: readonly string[],
-): SeedResult {
+): Promise<SeedResult> {
   const existing = new Set(
-    database
+    (await database
       .select({ name: table.name })
       .from(table)
-      .all()
+      .all())
       .map((row) => row.name.toLowerCase()),
   );
   let inserted = 0;
-  values.forEach((value, index) => {
-    if (existing.has(value.toLowerCase())) return;
-    database.insert(table).values({ name: value, sortOrder: index + 1 }).run();
+  for (const [index, value] of values.entries()) {
+    if (existing.has(value.toLowerCase())) continue;
+    await database.insert(table).values({ name: value, sortOrder: index + 1 }).run();
     inserted += 1;
-  });
+  }
   return { name, inserted };
 }
 
-function seedJobCategories(database: Db | Tx): SeedResult {
+async function seedJobCategories(database: Db | Tx): Promise<SeedResult> {
   const existing = new Set(
-    database
+    (await database
       .select({ track: jobCategories.track, name: jobCategories.name })
       .from(jobCategories)
-      .all()
+      .all())
       .map((row) => `${row.track}:${row.name.toLowerCase()}`),
   );
   let inserted = 0;
@@ -85,11 +85,11 @@ function seedJobCategories(database: Db | Tx): SeedResult {
     ['non_technical', DEFAULT_NON_TECHNICAL_JOB_CATEGORIES],
   ] as const;
   for (const [track, names] of lists) {
-    names.forEach((name, index) => {
-      if (existing.has(`${track}:${name.toLowerCase()}`)) return;
-      database.insert(jobCategories).values({ track, name, sortOrder: index + 1 }).run();
+    for (const [index, name] of names.entries()) {
+      if (existing.has(`${track}:${name.toLowerCase()}`)) continue;
+      await database.insert(jobCategories).values({ track, name, sortOrder: index + 1 }).run();
       inserted += 1;
-    });
+    }
   }
   return { name: 'job_categories', inserted };
 }
@@ -99,14 +99,14 @@ function seedJobCategories(database: Db | Tx): SeedResult {
  * its password at first sign-in, so the configured initial password is only
  * ever a one-time key.
  */
-function seedOwner(database: Db | Tx, passwordHash: string): SeedResult {
-  const owners = database.select({ n: count() }).from(users).where(eq(users.role, 'owner')).get()?.n ?? 0;
+async function seedOwner(database: Db | Tx, passwordHash: string): Promise<SeedResult> {
+  const owners = (await database.select({ n: count() }).from(users).where(eq(users.role, 'owner')).get())?.n ?? 0;
   if (owners > 0) return { name: 'owner_account', inserted: 0 };
 
-  const emailTaken = database.select({ id: users.id }).from(users).where(eq(users.email, env.OWNER_EMAIL)).get();
+  const emailTaken = await database.select({ id: users.id }).from(users).where(eq(users.email, env.OWNER_EMAIL)).get();
   if (emailTaken) return { name: 'owner_account', inserted: 0 };
 
-  database
+  await database
     .insert(users)
     .values({
       name: env.OWNER_NAME,
@@ -122,15 +122,15 @@ function seedOwner(database: Db | Tx, passwordHash: string): SeedResult {
 
 /** Run all seeders inside one transaction, so a failure leaves nothing half-seeded. */
 export async function seedDatabase(database: Db): Promise<SeedResult[]> {
-  // Hash before opening the transaction: better-sqlite3 transactions are
-  // synchronous and must not wait on async work.
+  // Hash before opening the transaction: it holds the database's write lock,
+  // so nothing slow should run inside it.
   const ownerHash = await hashPassword(env.OWNER_INITIAL_PASSWORD);
 
-  return database.transaction((tx) => [
-    seedInstituteSettings(tx),
-    seedOwner(tx, ownerHash),
-    seedNames(tx, 'lead_sources', leadSources, DEFAULT_LEAD_SOURCES),
-    seedNames(tx, 'expense_categories', expenseCategories, DEFAULT_EXPENSE_CATEGORIES),
-    seedJobCategories(tx),
+  return await database.transaction(async (tx) => [
+    await seedInstituteSettings(tx),
+    await seedOwner(tx, ownerHash),
+    await seedNames(tx, 'lead_sources', leadSources, DEFAULT_LEAD_SOURCES),
+    await seedNames(tx, 'expense_categories', expenseCategories, DEFAULT_EXPENSE_CATEGORIES),
+    await seedJobCategories(tx),
   ]);
 }

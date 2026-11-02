@@ -51,25 +51,25 @@ function linkFor(purpose: 'reset' | 'activate', token: string): string {
   return `${base}/reset-password?token=${encodeURIComponent(token)}${purpose === 'activate' ? '&activate=1' : ''}`;
 }
 
-function recentLinks(userId: string): number {
+async function recentLinks(userId: string): Promise<number> {
   const since = new Date(Date.now() - 60 * 60_000);
-  return db.select({ n: sql<number>`count(*)` }).from(passwordTokens).where(and(eq(passwordTokens.userId, userId), gt(passwordTokens.createdAt, since))).get()?.n ?? 0;
+  return (await db.select({ n: sql<number>`count(*)` }).from(passwordTokens).where(and(eq(passwordTokens.userId, userId), gt(passwordTokens.createdAt, since))).get())?.n ?? 0;
 }
 
 /** Create a token (retiring older unused ones of the same purpose) and email the link. */
 async function issueLink(user: Pick<User, 'id' | 'email' | 'name'>, purpose: 'reset' | 'activate', meta: ClientMeta): Promise<void> {
-  if (Number(recentLinks(user.id)) >= LINKS_PER_HOUR) {
+  if (Number(await recentLinks(user.id)) >= LINKS_PER_HOUR) {
     logger.warn({ userId: user.id, purpose }, 'Password link not sent: hourly limit reached');
     return;
   }
   const token = randomBytes(32).toString('base64url');
   const now = new Date();
-  db.transaction((tx) => {
-    tx.update(passwordTokens)
+  await db.transaction(async (tx) => {
+    await tx.update(passwordTokens)
       .set({ usedAt: now })
       .where(and(eq(passwordTokens.userId, user.id), eq(passwordTokens.purpose, purpose), isNull(passwordTokens.usedAt)))
       .run();
-    tx.insert(passwordTokens)
+    await tx.insert(passwordTokens)
       .values({ userId: user.id, purpose, tokenHash: hashToken(token), expiresAt: new Date(now.getTime() + (purpose === 'reset' ? RESET_TTL_MS : ACTIVATE_TTL_MS)), requestedIp: meta.ip ?? null })
       .run();
   });
@@ -95,7 +95,7 @@ async function issueLink(user: Pick<User, 'id' | 'email' | 'name'>, purpose: 're
 
 export async function requestPasswordReset(raw: unknown, meta: ClientMeta): Promise<void> {
   const { email } = forgotPasswordSchema.parse(raw);
-  const user = db.select().from(users).where(eq(users.email, email)).get();
+  const user = await db.select().from(users).where(eq(users.email, email)).get();
   if (!user || !user.isActive) return;
   await issueLink(user, 'reset', meta);
 }
@@ -103,32 +103,32 @@ export async function requestPasswordReset(raw: unknown, meta: ClientMeta): Prom
 /** Student claims a portal login using the email on their student record. */
 export async function requestStudentActivation(raw: unknown, meta: ClientMeta): Promise<void> {
   const { email } = activationRequestSchema.parse(raw);
-  const student = db.select().from(students).where(sql`lower(${students.email}) = ${email}`).get();
+  const student = await db.select().from(students).where(sql`lower(${students.email}) = ${email}`).get();
   if (!student || PORTAL_BLOCKED_STUDENT_STATUSES.includes(student.status)) return;
 
   if (student.userId) {
-    const existing = db.select().from(users).where(eq(users.id, student.userId)).get();
+    const existing = await db.select().from(users).where(eq(users.id, student.userId)).get();
     if (!existing) return;
     // Already active: a reset link is what they need. Pending: send a fresh activation link.
-    if (existing.isActive) return issueLink(existing, 'reset', meta);
+    if (existing.isActive) return await issueLink(existing, 'reset', meta);
     const pending = !existing.lastLoginAt && !existing.passwordChangedAt;
     if (pending) await issueLink(existing, 'activate', meta);
     return; // switched off by staff: nothing to send
   }
 
-  const admitted = db.get<{ n: number }>(sql`select count(*) as n from admissions where student_id = ${student.id} and status <> 'cancelled'`);
+  const admitted = await db.get<{ n: number }>(sql`select count(*) as n from admissions where student_id = ${student.id} and status <> 'cancelled'`);
   if (!admitted || Number(admitted.n) === 0) return;
-  if (db.select({ id: users.id }).from(users).where(eq(users.email, email)).get()) return;
+  if (await db.select({ id: users.id }).from(users).where(eq(users.email, email)).get()) return;
 
   const placeholder = await hashPassword(randomBytes(24).toString('base64url'));
-  const user = db.transaction((tx) => {
-    const created = tx
+  const user = await db.transaction(async (tx) => {
+    const created = await tx
       .insert(users)
       .values({ name: student.fullName, email, phone: student.phone, passwordHash: placeholder, role: 'staff', accountType: 'student', permissions: [], isActive: false })
       .returning()
       .get();
-    tx.update(students).set({ userId: created.id }).where(eq(students.id, student.id)).run();
-    recordAudit(tx, { actorId: '', actorName: 'Student self-service', permissions: [], isOwner: false, ip: meta.ip }, {
+    await tx.update(students).set({ userId: created.id }).where(eq(students.id, student.id)).run();
+    await recordAudit(tx, { actorId: '', actorName: 'Student self-service', permissions: [], isOwner: false, ip: meta.ip }, {
       action: 'create',
       entityType: 'user',
       entityId: created.id,
@@ -142,17 +142,17 @@ export async function requestStudentActivation(raw: unknown, meta: ClientMeta): 
 /** Complete a reset or an activation with the emailed token. */
 export async function setPasswordWithToken(raw: unknown, meta: ClientMeta): Promise<{ email: string }> {
   const input = tokenPasswordSchema.parse(raw);
-  const row = db.select().from(passwordTokens).where(eq(passwordTokens.tokenHash, hashToken(input.token))).get();
+  const row = await db.select().from(passwordTokens).where(eq(passwordTokens.tokenHash, hashToken(input.token))).get();
   const invalid = () => ApiError.unprocessable('This link is invalid or has expired. Request a new one.', 'INVALID_TOKEN');
   if (!row || row.usedAt || row.expiresAt.getTime() < Date.now()) throw invalid();
-  const user = db.select().from(users).where(eq(users.id, row.userId)).get();
+  const user = await db.select().from(users).where(eq(users.id, row.userId)).get();
   if (!user) throw invalid();
   // A deactivated account cannot be brought back by a reset link.
   if (row.purpose === 'reset' && !user.isActive) throw invalid();
 
   const passwordHash = await hashPassword(input.newPassword);
-  db.transaction((tx) => {
-    tx.update(users)
+  await db.transaction(async (tx) => {
+    await tx.update(users)
       .set({
         passwordHash,
         mustChangePassword: false,
@@ -164,9 +164,9 @@ export async function setPasswordWithToken(raw: unknown, meta: ClientMeta): Prom
       })
       .where(eq(users.id, user.id))
       .run();
-    tx.update(passwordTokens).set({ usedAt: new Date() }).where(eq(passwordTokens.id, row.id)).run();
-    revokeAllForUser(tx, user.id);
-    recordAudit(tx, { actorId: user.id, actorName: user.name, permissions: [], isOwner: false, ip: meta.ip }, {
+    await tx.update(passwordTokens).set({ usedAt: new Date() }).where(eq(passwordTokens.id, row.id)).run();
+    await revokeAllForUser(tx, user.id);
+    await recordAudit(tx, { actorId: user.id, actorName: user.name, permissions: [], isOwner: false, ip: meta.ip }, {
       action: 'password_change',
       entityType: 'user',
       entityId: user.id,
@@ -192,26 +192,26 @@ async function grantLogin(
   const passwordHash = await hashPassword(temporaryPassword);
 
   if (record.userId) {
-    const existing = db.select().from(users).where(eq(users.id, record.userId)).get();
+    const existing = await db.select().from(users).where(eq(users.id, record.userId)).get();
     if (existing?.isActive) throw ApiError.conflict(`${record.name} already has a login. Use "reset password" to issue a new one.`, 'ALREADY_HAS_LOGIN');
     if (existing) {
-      db.transaction((tx) => {
-        tx.update(users)
+      await db.transaction(async (tx) => {
+        await tx.update(users)
           .set({ isActive: true, passwordHash, mustChangePassword: true, email, failedLoginCount: 0, lockedUntil: null, tokenVersion: sql`${users.tokenVersion} + 1` })
           .where(eq(users.id, existing.id))
           .run();
-        revokeAllForUser(tx, existing.id);
-        recordAudit(tx, ctx, { action: 'status_change', entityType: 'user', entityId: existing.id, summary: `Restored the ${kind} login of ${record.label}` });
+        await revokeAllForUser(tx, existing.id);
+        await recordAudit(tx, ctx, { action: 'status_change', entityType: 'user', entityId: existing.id, summary: `Restored the ${kind} login of ${record.label}` });
       });
       return { userId: existing.id };
     }
   }
 
-  const clash = db.select({ id: users.id, accountType: users.accountType }).from(users).where(eq(users.email, email)).get();
+  const clash = await db.select({ id: users.id, accountType: users.accountType }).from(users).where(eq(users.email, email)).get();
   if (clash) throw ApiError.conflict(`Another account already uses ${email}. Each login needs its own email address.`, 'EMAIL_IN_USE');
 
-  const userId = db.transaction((tx) => {
-    const created = tx
+  const userId = await db.transaction(async (tx) => {
+    const created = await tx
       .insert(users)
       .values({
         name: record.name,
@@ -226,39 +226,39 @@ async function grantLogin(
       })
       .returning()
       .get();
-    if (kind === 'student') tx.update(students).set({ userId: created.id }).where(eq(students.id, record.id)).run();
-    else tx.update(trainers).set({ userId: created.id }).where(eq(trainers.id, record.id)).run();
-    recordAudit(tx, ctx, { action: 'create', entityType: 'user', entityId: created.id, summary: `Gave ${record.label} a ${kind === 'student' ? 'student portal' : 'faculty'} login (${email})` });
+    if (kind === 'student') await tx.update(students).set({ userId: created.id }).where(eq(students.id, record.id)).run();
+    else await tx.update(trainers).set({ userId: created.id }).where(eq(trainers.id, record.id)).run();
+    await recordAudit(tx, ctx, { action: 'create', entityType: 'user', entityId: created.id, summary: `Gave ${record.label} a ${kind === 'student' ? 'student portal' : 'faculty'} login (${email})` });
     return created.id;
   });
   return { userId };
 }
 
-export function grantStudentPortal(ctx: RequestContext, studentId: string, raw: unknown) {
-  const s = db.select().from(students).where(eq(students.id, studentId)).get();
+export async function grantStudentPortal(ctx: RequestContext, studentId: string, raw: unknown) {
+  const s = await db.select().from(students).where(eq(students.id, studentId)).get();
   if (!s) throw ApiError.notFound('Student');
   if (PORTAL_BLOCKED_STUDENT_STATUSES.includes(s.status)) {
     throw ApiError.unprocessable(`This student is ${s.status}. Set them back to active before giving portal access.`, 'STUDENT_NOT_ACTIVE');
   }
-  const admitted = db.select({ id: admissions.id }).from(admissions).where(and(eq(admissions.studentId, s.id), sql`${admissions.status} <> 'cancelled'`)).get();
+  const admitted = await db.select({ id: admissions.id }).from(admissions).where(and(eq(admissions.studentId, s.id), sql`${admissions.status} <> 'cancelled'`)).get();
   if (!admitted) throw ApiError.unprocessable('Only students with an admission can have a portal login.', 'NO_ADMISSION');
-  return grantLogin(ctx, 'student', { id: s.id, name: s.fullName, email: s.email, phone: s.phone, userId: s.userId, label: `${s.fullName} (${s.studentCode})` }, raw);
+  return await grantLogin(ctx, 'student', { id: s.id, name: s.fullName, email: s.email, phone: s.phone, userId: s.userId, label: `${s.fullName} (${s.studentCode})` }, raw);
 }
 
-export function grantFacultyLogin(ctx: RequestContext, trainerId: string, raw: unknown) {
-  const t = db.select().from(trainers).where(eq(trainers.id, trainerId)).get();
+export async function grantFacultyLogin(ctx: RequestContext, trainerId: string, raw: unknown) {
+  const t = await db.select().from(trainers).where(eq(trainers.id, trainerId)).get();
   if (!t) throw ApiError.notFound('Trainer');
   if (!t.isActive) throw ApiError.unprocessable('Reactivate the trainer before giving them a login.', 'TRAINER_INACTIVE');
-  return grantLogin(ctx, 'faculty', { id: t.id, name: t.name, email: t.email, phone: t.phone, userId: t.userId, label: t.name }, raw);
+  return await grantLogin(ctx, 'faculty', { id: t.id, name: t.name, email: t.email, phone: t.phone, userId: t.userId, label: t.name }, raw);
 }
 
 /** Switch a student or faculty login off. The link to the record is kept, so it can be restored. */
-export function revokePortalLogin(ctx: RequestContext, userId: string): void {
-  const user = db.select().from(users).where(eq(users.id, userId)).get();
+export async function revokePortalLogin(ctx: RequestContext, userId: string): Promise<void> {
+  const user = await db.select().from(users).where(eq(users.id, userId)).get();
   if (!user || user.accountType === 'team') throw ApiError.notFound('Portal login');
-  db.transaction((tx) => {
-    tx.update(users).set({ isActive: false, tokenVersion: sql`${users.tokenVersion} + 1` }).where(eq(users.id, userId)).run();
-    revokeAllForUser(tx, userId);
-    recordAudit(tx, ctx, { action: 'status_change', entityType: 'user', entityId: userId, summary: `Switched off the ${user.accountType} login of ${user.name}` });
+  await db.transaction(async (tx) => {
+    await tx.update(users).set({ isActive: false, tokenVersion: sql`${users.tokenVersion} + 1` }).where(eq(users.id, userId)).run();
+    await revokeAllForUser(tx, userId);
+    await recordAudit(tx, ctx, { action: 'status_change', entityType: 'user', entityId: userId, summary: `Switched off the ${user.accountType} login of ${user.name}` });
   });
 }

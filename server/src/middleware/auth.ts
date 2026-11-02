@@ -33,12 +33,12 @@ export const authenticate: RequestHandler = async (req, _res, next) => {
       : ApiError.unauthorized('Your session is not valid. Please sign in again.');
   }
 
-  const user = db.select().from(users).where(eq(users.id, result.claims.sub)).get();
+  const user = await db.select().from(users).where(eq(users.id, result.claims.sub)).get();
   if (!user || !user.isActive || user.tokenVersion !== result.claims.tv) {
     throw new ApiError(401, 'SESSION_REVOKED', 'Your session has ended. Please sign in again.');
   }
   // A student made inactive or suspended loses the portal on their next request.
-  if (user.accountType === 'student' && studentPortalBlocked(user.id)) {
+  if (user.accountType === 'student' && await studentPortalBlocked(user.id)) {
     throw new ApiError(401, 'SESSION_REVOKED', 'Your session has ended. Please sign in again.');
   }
 
@@ -46,7 +46,7 @@ export const authenticate: RequestHandler = async (req, _res, next) => {
     throw new ApiError(403, 'PASSWORD_CHANGE_REQUIRED', 'Please set a new password to continue.');
   }
 
-  const links = accountLinks(user);
+  const links = await accountLinks(user);
   req.auth = { user: toPublicUser(user), permissions: effectivePermissions(user), accountType: user.accountType, ...links };
   next();
 };

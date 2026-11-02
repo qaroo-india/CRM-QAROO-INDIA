@@ -315,5 +315,5 @@ export async function renderReportPdf(data: ReportDataset, institute: InstituteI
   }
 
   stampFooters(doc, `${institute.name} · ${data.label} · ${f.range(data.range)} · Confidential`);
-  return toBuffer(doc);
+  return await toBuffer(doc);
 }

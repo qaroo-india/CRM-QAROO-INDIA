@@ -15,11 +15,11 @@ placement, and computes the institute's financial and operational reports.
 | # | Decision | Chosen | Why | Trade-off accepted |
 |---|---|---|---|---|
 | D1 | Language | **TypeScript** everywhere | One Zod schema types the form, the request validator and the response. Field renames break the build, not a report. | Slightly more setup. |
-| D2 | Database | **SQLite (better-sqlite3) + Drizzle ORM** | The synchronous driver makes multi-row financial writes truly atomic, with no async gap between reading a balance and writing a payment. SQL `GROUP BY`/CTEs suit the reporting engine. Zero install for development. | One writer at a time (ample for one institute). Hosting needs a persistent disk or Turso. See §8. |
+| D2 | Database | **SQLite via libSQL + Drizzle ORM**: a local file in development, **Turso** (hosted libSQL) in production | Multi-row financial writes run in write transactions (`BEGIN IMMEDIATE`), so nothing commits between reading a balance and writing a payment. SQL `GROUP BY`/CTEs suit the reporting engine. Zero install for development; serverless hosting without a disk. | One writer at a time (ample for one institute). Every query is async; inside a transaction everything must go through `tx`. See §8. |
 | D3 | Money | **Integer minor units** (paise) | `SUM()` over integers is exact. No float drift, no decimal library. | Format at the edges only (`formatMoney`). |
 | D4 | Auth | **HttpOnly cookies**: 15-min access JWT + rotating refresh token, CSRF double-submit | Script injection cannot read tokens. Refresh rotation with reuse detection revokes stolen tokens. | Needs same-site deployment (§8) and CSRF handling. |
 | D5 | Monorepo | **npm workspaces**: `client`, `server`, `shared` | Contracts and money logic are written once. | `shared` ships as TS source; server bundles it with esbuild. |
-| D6 | Dialect containment | Table files import only from `server/src/db/dialect.ts` | Turso is a driver-only swap. Postgres rewrites that one module plus the driver and regenerates migrations. Table and service code stay untouched. | Raw SQL date functions must also live in the dialect module. |
+| D6 | Dialect containment | Table files import only from `server/src/db/dialect.ts` | Turso was a driver swap (`db/index.ts`). Postgres rewrites that one module plus the driver and regenerates migrations. Table and service code stay untouched. | Raw SQL date functions must also live in the dialect module. |
 | D7 | Primary keys | **UUIDv7** (app-generated) | Time-ordered keys give B-tree locality and map to Postgres `uuid`. The id is known before insert. | 36-char text keys in SQLite. |
 | D8 | Business dates | `TEXT 'YYYY-MM-DD'` in the institute zone | A receipt dated 31 March stays in March regardless of server zone. String order equals date order, so range queries stay indexed. | Instants (audit times) use a separate epoch-ms type. |
 
@@ -28,7 +28,7 @@ placement, and computes the institute's financial and operational reports.
 Drizzle does **not** share one schema across dialects (`sqliteTable` and `pgTable`
 are different builders). D6 contains the difference instead:
 
-- **Turso / libSQL:** driver swap in `db/index.ts` only.
+- **Turso / libSQL:** done. The driver lives in `db/index.ts`; a `libsql://` URL selects Turso, anything else a local file.
 - **Postgres:** rewrite `db/dialect.ts` (~80 lines) and `db/index.ts`, then
   regenerate migrations. Table definitions and services are unchanged.
 
@@ -37,7 +37,7 @@ are different builders). D6 contains the difference instead:
 ## 2. System overview
 
 ```
- Browser (React SPA)                         Express API                      SQLite
+ Browser (React SPA)                         Express API                      libSQL
 ┌────────────────────────┐   /api/v1/*   ┌──────────────────────────────┐   ┌───────────┐
 │ Pages → feature hooks   │ ────────────▶ │ requestLogger (id, pino)     │   │ WAL mode  │
 │ TanStack Query cache    │  same-origin  │ helmet · CORS · rate limit   │   │ FKs ON    │
@@ -65,10 +65,10 @@ are different builders). D6 contains the difference instead:
 ```
 modules/finance/
   finance.routes.ts       HTTP: authorise + parse + respond. No business logic.
-  payments.service.ts     Business rules. Synchronous db.transaction() for writes.
+  payments.service.ts     Business rules. db.transaction(async (tx) => ...) for writes.
   hooks.ts                Post-commit extension points (notifications).
 services/ledger.ts        Every balance expression (paid, refunded, outstanding as of D, overdue).
-tests/payments.test.ts    Integration tests through HTTP against in-memory SQLite.
+tests/payments.test.ts    Integration tests through HTTP against a throwaway SQLite file.
 ```
 
 **Modules:**
@@ -284,7 +284,7 @@ Summary only; [SECURITY.md](SECURITY.md) has the full review, with the test that
   - Documents scoped to the owning record plus `documents:restricted`.
 - **Integrity:**
   - Integer paise and an append-only ledger.
-  - Atomic synchronous transactions, CHECK constraints and idempotency keys.
+  - Atomic write transactions, CHECK constraints and idempotency keys.
   - An audit trail on every change.
 - **Input and output:**
   - Zod validation everywhere and parameterised SQL.
@@ -313,16 +313,23 @@ Summary only; [SECURITY.md](SECURITY.md) has the full review, with the test that
 ## 8. Deployment topology
 
 ```
- Browser ──HTTPS──▶ Vercel (static SPA)
-                       │  rewrite /api/*  ──HTTPS──▶  Render web service (Express, 1 instance)
-                       │                                  │
-                       └─ everything else → index.html     └─ /var/data persistent disk:
-                                                              SQLite, documents, report files, backups
+ Browser ──HTTPS──▶ Vercel project (one domain, vercel.json "services")
+                       ├─ /api/*  → service "server": Express as one Vercel Function (dist/vercel.js)
+                       │              ├─ Turso: hosted libSQL database
+                       │              └─ Vercel Blob (private): documents, photos, report files
+                       ├─ /*      → service "client": static SPA, unknown paths → index.html
+                       └─ Vercel Cron → GET /api/v1/cron/tick (reminders, due report schedules)
 ```
 
-- **Same-origin through a Vercel rewrite.** The browser only ever talks to the Vercel domain. That keeps auth cookies first-party under `SameSite=Strict`.
-- **SQLite needs a persistent disk**, and the service runs as **one instance**. The in-process scheduler (report schedules every minute, reminders every 15 minutes, `JOBS_ENABLED`) must not run twice.
-- **Backups:** `npm run db:backup` makes verified online snapshots. Use them together with Litestream continuous replication.
+- **Same origin.** The browser only ever talks to the Vercel domain. That keeps auth cookies first-party under `SameSite=Strict`. There are no service bindings: nothing calls the API but the browser and Vercel Cron.
+- **Stateless function instances.** Anything that must survive between requests lives in Turso or Blob:
+  - import previews are a table;
+  - settings are cached per instance and re-read every minute;
+  - each due report schedule is claimed atomically, so overlapping runners never send it twice.
+- **Background jobs:** a long-running server runs them on timers (`JOBS_ENABLED`). On Vercel, Vercel Cron calls `/api/v1/cron/tick` with `CRON_SECRET`.
+- **Migrations** run in the production build (`scripts/vercel-build.mjs`), before the new code goes live.
+- **Backups:** Turso point-in-time restore plus an off-site dump. `npm run db:backup` still snapshots a local database file.
+- **The same code runs as a long-running server** (`src/server.ts`) with a local database file and disk storage, for development or a VM.
 
 Step-by-step instructions: [DEPLOYMENT.md](DEPLOYMENT.md).
 
@@ -346,11 +353,12 @@ Step-by-step instructions: [DEPLOYMENT.md](DEPLOYMENT.md).
 **Verification (run, not assumed):**
 
 - `npm run typecheck`
-- `npm test`: shared, server (in-memory SQLite, through HTTP) and client suites
+- `npm test`: shared, server (throwaway SQLite file, through HTTP) and client suites
 - `npm run build`
 - a live smoke test against the demo database: sign in, forced password change, dashboard totals cross-checked, PDF, Excel and receipt exports, email recorded, notifications, CSRF and anonymous refusal
 - a visual check of the rendered report PDF
-- a clean-copy install and build using the exact Vercel and Render commands
+- a clean-copy install and build using the exact commands of the earlier Vercel + Render setup
+- for the Vercel services setup: the server bundle run locally (migrate, seed, health, cron) in production mode; the Vercel build itself has not been run
 
 ---
 
@@ -364,6 +372,7 @@ Step-by-step instructions: [DEPLOYMENT.md](DEPLOYMENT.md).
 - **Historical cancellations:** the admissions *count* uses each admission's current status. An admission cancelled later also drops out of past periods' counts. Balances, by contrast, are fully as-of the period end.
 - **Restructuring history:** a fee plan restructured after date D changes the instalments used for D's ageing. Outstanding itself is unaffected.
 - **Email** needs SMTP credentials. In development, `EMAIL_TRANSPORT=log` records deliveries as "not delivered (dev mode)" and sends nothing.
-- **In-memory import previews** expire after 30 minutes or on restart.
-- **Turso and Postgres** are supported by design (D6) but not implemented.
+- **Import previews** expire after 30 minutes.
+- **Postgres** is supported by design (D6) but not implemented. Turso is implemented.
+- **On Vercel:** 4.5 MB request and response bodies (uploads capped at 4 MB), 60 s per request, and on the Hobby plan cron runs once a day. See [DEPLOYMENT.md](DEPLOYMENT.md) §5.
 - **No 2FA, no virus scanning of uploads.** See SECURITY.md.

@@ -46,14 +46,14 @@ function toDto(row: Course & { activeAdmissions: number }): CourseDto {
   };
 }
 
-function fetchCourse(id: string): CourseDto {
-  const row = db.select({ course: courses, activeAdmissions }).from(courses).where(eq(courses.id, id)).get();
+async function fetchCourse(id: string): Promise<CourseDto> {
+  const row = await db.select({ course: courses, activeAdmissions }).from(courses).where(eq(courses.id, id)).get();
   if (!row) throw ApiError.notFound('Course');
   return toDto({ ...row.course, activeAdmissions: row.activeAdmissions });
 }
 
-function assertCodeFree(code: string, exceptId?: string): void {
-  const clash = db
+async function assertCodeFree(code: string, exceptId?: string): Promise<void> {
+  const clash = await db
     .select({ id: courses.id })
     .from(courses)
     .where(and(sql`upper(${courses.code}) = ${code.toUpperCase()}`, exceptId ? ne(courses.id, exceptId) : undefined))
@@ -61,14 +61,14 @@ function assertCodeFree(code: string, exceptId?: string): void {
   if (clash) throw ApiError.conflict(`A course with code ${code} already exists.`);
 }
 
-coursesRouter.get('/', requirePermission('courses:read'), (req, res) => {
+coursesRouter.get('/', requirePermission('courses:read'), async (req, res) => {
   const query = parseQuery(courseListQuerySchema, req);
   const conditions: SQL[] = [];
   if (query.q) conditions.push(or(containsText(courses.name, query.q), containsText(courses.code, query.q))!);
   if (query.active) conditions.push(eq(courses.isActive, query.active === 'true'));
   if (query.track) conditions.push(or(eq(courses.placementTrack, query.track), eq(courses.placementTrack, 'both'))!);
 
-  const rows = db
+  const rows = await db
     .select({ course: courses, activeAdmissions })
     .from(courses)
     .where(conditions.length ? and(...conditions) : undefined)
@@ -77,17 +77,17 @@ coursesRouter.get('/', requirePermission('courses:read'), (req, res) => {
   ok(res, rows.map((r) => toDto({ ...r.course, activeAdmissions: r.activeAdmissions })));
 });
 
-coursesRouter.get('/:id', requirePermission('courses:read'), (req, res) => {
-  ok(res, fetchCourse(paramId(req)));
+coursesRouter.get('/:id', requirePermission('courses:read'), async (req, res) => {
+  ok(res, await fetchCourse(paramId(req)));
 });
 
 /** Create a course (also used by the demo seed). */
-export function createCourse(ctx: RequestContext, raw: unknown): CourseDto {
+export async function createCourse(ctx: RequestContext, raw: unknown): Promise<CourseDto> {
   const input = courseSchema.parse(raw);
-  assertCodeFree(input.code);
+  await assertCodeFree(input.code);
 
-  const row = db.transaction((tx) => {
-    const inserted = tx
+  const row = await db.transaction(async (tx) => {
+    const inserted = await tx
       .insert(courses)
       .values({
         ...input,
@@ -99,26 +99,26 @@ export function createCourse(ctx: RequestContext, raw: unknown): CourseDto {
       })
       .returning()
       .get();
-    recordAudit(tx, ctx, { action: 'create', entityType: 'course', entityId: inserted.id, summary: `Created course ${inserted.code} ${inserted.name}`, after: inserted });
+    await recordAudit(tx, ctx, { action: 'create', entityType: 'course', entityId: inserted.id, summary: `Created course ${inserted.code} ${inserted.name}`, after: inserted });
     return inserted;
   });
-  return fetchCourse(row.id);
+  return await fetchCourse(row.id);
 }
 
-coursesRouter.post('/', requirePermission('courses:write'), (req, res) => {
-  created(res, createCourse(contextFrom(req), req.body));
+coursesRouter.post('/', requirePermission('courses:write'), async (req, res) => {
+  created(res, await createCourse(contextFrom(req), req.body));
 });
 
-coursesRouter.put('/:id', requirePermission('courses:write'), (req, res) => {
+coursesRouter.put('/:id', requirePermission('courses:write'), async (req, res) => {
   const id = paramId(req);
   const input = parseBody(courseSchema, req);
   const ctx = contextFrom(req);
-  const existing = db.select().from(courses).where(eq(courses.id, id)).get();
+  const existing = await db.select().from(courses).where(eq(courses.id, id)).get();
   if (!existing) throw ApiError.notFound('Course');
-  assertCodeFree(input.code, id);
+  await assertCodeFree(input.code, id);
 
-  db.transaction((tx) => {
-    const updated = tx
+  await db.transaction(async (tx) => {
+    const updated = await tx
       .update(courses)
       .set({
         ...input,
@@ -130,7 +130,7 @@ coursesRouter.put('/:id', requirePermission('courses:write'), (req, res) => {
       .where(eq(courses.id, id))
       .returning()
       .get();
-    recordAudit(tx, ctx, {
+    await recordAudit(tx, ctx, {
       action: 'update',
       entityType: 'course',
       entityId: id,
@@ -138,5 +138,5 @@ coursesRouter.put('/:id', requirePermission('courses:write'), (req, res) => {
       ...diff(existing as unknown as Record<string, unknown>, updated as unknown as Record<string, unknown>),
     });
   });
-  ok(res, fetchCourse(id));
+  ok(res, await fetchCourse(id));
 });

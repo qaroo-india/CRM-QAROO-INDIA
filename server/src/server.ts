@@ -1,7 +1,11 @@
 /**
  * Process entry point: start listening and shut down cleanly.
  *
- * Graceful shutdown matters more than usual with SQLite: closing the database
+ * This is the long-running server (local development, a VM or a container).
+ * On Vercel the app runs from src/vercel.ts instead, without listen() or the
+ * in-process timers -- Vercel Cron calls /api/v1/cron/tick for those.
+ *
+ * Graceful shutdown matters with a local database file: closing it
  * checkpoints the write-ahead log into the main file, so a redeploy never
  * leaves recent payments sitting only in the -wal sidecar file.
  */
@@ -10,15 +14,16 @@ import type { Server } from 'node:http';
 import { createApp } from './app';
 import { env } from './config/env';
 import { logger } from './config/logger';
-import { closeDatabase, databaseLocation, sqlite } from './db';
+import { client, closeDatabase, databaseLocation, prepareDatabase } from './db';
 import { getMigrationStatus } from './db/migrator';
 import { startBackgroundJobs } from './jobs';
+import { loadSettings } from './services/settings';
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 let stopJobs: () => void = () => {};
 
-function warnOnPendingMigrations(): void {
-  const status = getMigrationStatus(sqlite);
+async function warnOnPendingMigrations(): Promise<void> {
+  const status = await getMigrationStatus(client);
   if (status.pending.length > 0 || status.applied === 0) {
     logger.warn(
       { pending: status.pending },
@@ -30,7 +35,7 @@ function warnOnPendingMigrations(): void {
 function start(): Server {
   const app = createApp();
 
-  const server = app.listen(env.PORT, env.HOST, () => {
+  const server = app.listen(env.PORT, env.HOST, async () => {
     logger.info(
       {
         url: `http://${env.HOST}:${env.PORT}/api/v1`,
@@ -40,7 +45,10 @@ function start(): Server {
       },
       'API server listening',
     );
-    warnOnPendingMigrations();
+    await prepareDatabase();
+    await warnOnPendingMigrations();
+    // Warm the settings cache; requests also reload it (see ensureSettings).
+    await loadSettings().catch(() => logger.warn('Institute settings not loaded yet. Run "npm run db:seed".'));
     stopJobs = startBackgroundJobs();
   });
 

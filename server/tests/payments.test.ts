@@ -7,7 +7,7 @@
  */
 
 import { eq } from 'drizzle-orm';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { db } from '../src/db';
 import { payments } from '../src/db/schema';
 import { bootstrap, clientWith, ownerClient, type Client } from './support';
@@ -48,9 +48,17 @@ function pay(admissionId: string, amountMinor: number, extra: Record<string, unk
 }
 
 beforeAll(async () => {
+  // The fixtures use October 2026 dates. Pin the clock (Date only, timers stay
+  // real) so "overdue" means the same thing whenever the suite runs.
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-10-10T06:30:00Z'));
   app = await bootstrap();
   owner = await ownerClient(app);
   courseId = (await owner.post('/api/v1/courses', { code: 'DA-01', name: 'Data Analytics', standardFeeMinor: 5_000_000 }).expect(201)).body.data.id;
+});
+
+afterAll(() => {
+  vi.useRealTimers();
 });
 
 describe('fee plans', () => {
@@ -163,7 +171,7 @@ describe('recording payments', () => {
     const first = await pay(a.id, 300_000).set('Idempotency-Key', key).expect(201);
     const replay = await pay(a.id, 300_000).set('Idempotency-Key', key).expect(200);
     expect(replay.body.data.id).toBe(first.body.data.id);
-    expect(db.select().from(payments).where(eq(payments.idempotencyKey, key)).all()).toHaveLength(1);
+    expect(await db.select().from(payments).where(eq(payments.idempotencyKey, key)).all()).toHaveLength(1);
 
     const reused = await pay(a.id, 999).set('Idempotency-Key', key).expect(409);
     expect(reused.body.error.code).toBe('IDEMPOTENCY_KEY_REUSED');

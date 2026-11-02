@@ -16,9 +16,12 @@ export default defineConfig({
       STORAGE_DIR: './storage-test',
       LOGIN_RATE_LIMIT_MAX: '1000',
       RATE_LIMIT_MAX: '100000',
+      // A placeholder for the cron endpoint tests, not a real secret.
+      CRON_SECRET: 'test-only-cron-secret-0123456789',
     },
-    // Each test file runs in its own process with its own in-memory database.
-    // Forks (not threads) because better-sqlite3 is a native module.
+    // Each test file runs in its own process with its own throwaway database
+    // (":memory:" becomes a temporary file; see src/db/index.ts).
+    // Forks (not threads) because libSQL is a native module.
     pool: 'forks',
     // One fork per core (12 on a dev laptop), each loading native modules,
     // crashed workers at start-up on an 8 GB machine (exit 0xC0000409), and 4

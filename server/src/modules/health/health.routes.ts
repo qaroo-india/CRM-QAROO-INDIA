@@ -16,8 +16,8 @@ import { getLiveness, getReadiness } from './health.service';
 
 export const healthRouter = Router();
 
-healthRouter.get('/', (_req, res) => {
-  const health = getReadiness();
+healthRouter.get('/', async (_req, res) => {
+  const health = await getReadiness();
   res.setHeader('Cache-Control', 'no-store');
   ok(res, health, undefined, health.status === 'down' ? 503 : 200);
 });
