@@ -2,14 +2,14 @@
  * Sign-in, session refresh, sign-out and password changes.
  */
 
-import type { ChangePasswordInput, LoginInput } from '@ims/shared';
+import { DEFAULT_FACULTY_PERMISSIONS, type ChangePasswordInput, type LoginInput } from '@ims/shared';
 import { eq, sql } from 'drizzle-orm';
 import { db } from '../../db';
-import { users, type User } from '../../db/schema';
+import { students, trainers, users, type User } from '../../db/schema';
 import { recordAudit } from '../../services/audit';
 import { ApiError } from '../../utils/ApiError';
 import type { RequestContext } from '../../utils/context';
-import { studentPortalBlocked } from '../users/serialize';
+import { PORTAL_BLOCKED_STUDENT_STATUSES, studentPortalBlocked } from '../users/serialize';
 import { hashPassword, verifyAgainstDummy, verifyPassword } from './password';
 import { issueRefreshToken, revokeAllForUser, rotateRefreshToken, signAccessToken } from './tokens';
 
@@ -32,7 +32,59 @@ interface ClientMeta {
 }
 
 export async function login(input: LoginInput, meta: ClientMeta): Promise<IssuedSession> {
-  const user = await db.select().from(users).where(eq(users.email, input.email)).get();
+  const cleanEmail = input.email.trim().toLowerCase();
+  let user = await db.select().from(users).where(eq(users.email, cleanEmail)).get();
+
+  // If no user record exists, check if email belongs to an existing trainer or student
+  if (!user) {
+    const trainer = await db.select().from(trainers).where(sql`lower(${trainers.email}) = ${cleanEmail}`).get();
+    if (trainer && trainer.isActive) {
+      const passwordHash = await hashPassword(input.password);
+      user = await db.transaction(async (tx) => {
+        const created = await tx
+          .insert(users)
+          .values({
+            name: trainer.name,
+            email: cleanEmail,
+            phone: trainer.phone,
+            passwordHash,
+            role: 'staff',
+            accountType: 'faculty',
+            permissions: [...DEFAULT_FACULTY_PERMISSIONS],
+            mustChangePassword: false,
+            isActive: true,
+          })
+          .returning()
+          .get();
+        await tx.update(trainers).set({ userId: created.id }).where(eq(trainers.id, trainer.id)).run();
+        return created;
+      });
+    } else {
+      const student = await db.select().from(students).where(sql`lower(${students.email}) = ${cleanEmail}`).get();
+      if (student && !PORTAL_BLOCKED_STUDENT_STATUSES.includes(student.status)) {
+        const passwordHash = await hashPassword(input.password);
+        user = await db.transaction(async (tx) => {
+          const created = await tx
+            .insert(users)
+            .values({
+              name: student.fullName,
+              email: cleanEmail,
+              phone: student.phone,
+              passwordHash,
+              role: 'staff',
+              accountType: 'student',
+              permissions: [],
+              mustChangePassword: false,
+              isActive: true,
+            })
+            .returning()
+            .get();
+          await tx.update(students).set({ userId: created.id }).where(eq(students.id, student.id)).run();
+          return created;
+        });
+      }
+    }
+  }
 
   if (!user) {
     await verifyAgainstDummy(input.password);
@@ -60,6 +112,25 @@ export async function login(input: LoginInput, meta: ClientMeta): Promise<Issued
       .where(eq(users.id, user.id))
       .run();
     throw INVALID_CREDENTIALS();
+  }
+
+  // Ensure trainer/student links are established if missing
+  if (user.accountType === 'faculty') {
+    const linked = await db.select({ id: trainers.id }).from(trainers).where(eq(trainers.userId, user.id)).get();
+    if (!linked) {
+      const match = await db.select().from(trainers).where(sql`lower(${trainers.email}) = ${cleanEmail}`).get();
+      if (match) {
+        await db.update(trainers).set({ userId: user.id }).where(eq(trainers.id, match.id)).run();
+      }
+    }
+  } else if (user.accountType === 'student') {
+    const linked = await db.select({ id: students.id }).from(students).where(eq(students.userId, user.id)).get();
+    if (!linked) {
+      const match = await db.select().from(students).where(sql`lower(${students.email}) = ${cleanEmail}`).get();
+      if (match) {
+        await db.update(students).set({ userId: user.id }).where(eq(students.id, match.id)).run();
+      }
+    }
   }
 
   // Revealed only after a correct password, so it leaks nothing to a guesser.

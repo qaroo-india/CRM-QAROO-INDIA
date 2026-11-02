@@ -112,7 +112,7 @@ export function LoginPage() {
     setFormError(null);
     setGoogleLoading(true);
     try {
-      await auth.signInWithGoogle();
+      await auth.signInWithGoogle(audience === 'office' ? 'team' : audience);
       remember(audience);
       navigate(next, { replace: true });
     } catch (error: any) {

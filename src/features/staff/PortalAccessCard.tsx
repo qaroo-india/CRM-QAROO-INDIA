@@ -118,7 +118,7 @@ export function PortalAccessCard({ kind, recordId, name, email, portal, invalida
       <DialogRoot open={Boolean(issuing)} onOpenChange={(open) => !open && setIssuing(null)}>
         <DialogContent
           title={issuing?.mode === 'reset' ? `New temporary password for ${name}` : `${label} for ${name}`}
-          description={`They sign in with ${email ?? 'their email'} and must choose their own password first.`}
+          description={`They will sign in with ${email ?? 'their email'} using this password.`}
           size="sm"
           footer={
             issuing?.done ? (
@@ -126,12 +126,39 @@ export function PortalAccessCard({ kind, recordId, name, email, portal, invalida
             ) : (
               <>
                 <Button variant="ghost" onClick={() => setIssuing(null)}>Cancel</Button>
-                <Button loading={issue.isPending} onClick={() => issuing && issue.mutate(issuing)}>{issuing?.mode === 'reset' ? 'Issue password' : 'Create login'}</Button>
+                <Button loading={issue.isPending} onClick={() => issuing && issue.mutate(issuing)}>{issuing?.mode === 'reset' ? 'Save password' : 'Create login'}</Button>
               </>
             )
           }
         >
-          {issuing && <TemporaryPasswordNotice password={issuing.password} name={name} />}
+          {issuing && (
+            <div className="space-y-3">
+              {!issuing.done ? (
+                <>
+                  <label className="block text-sm font-medium text-fg">Password</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      className="flex-1 rounded border bg-surface px-3 py-1.5 font-mono text-sm text-fg"
+                      value={issuing.password}
+                      onChange={(e) => setIssuing({ ...issuing, password: e.target.value })}
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setIssuing({ ...issuing, password: generateTemporaryPassword() })}
+                    >
+                      Generate
+                    </Button>
+                  </div>
+                  <p className="text-xs text-fg-muted">Minimum 10 characters, including letters and numbers.</p>
+                </>
+              ) : (
+                <TemporaryPasswordNotice password={issuing.password} name={name} />
+              )}
+            </div>
+          )}
         </DialogContent>
       </DialogRoot>
 

@@ -160,7 +160,7 @@ export function StudentProfilePage() {
           <div className="space-y-3">
             <h2 className="text-sm font-semibold text-fg">Current enrolment</h2>
             <AdmissionCards admissions={primary ? [primary] : []} onOpen={setOpenAdmission} />
-            {admissions.length > 0 && <PortalAccessCard kind="student" recordId={student.id} name={student.fullName} email={student.email} portal={student.portal} invalidate={[studentKeys.profile(student.id)]} />}
+            <PortalAccessCard kind="student" recordId={student.id} name={student.fullName} email={student.email} portal={student.portal} invalidate={[studentKeys.profile(student.id)]} />
           </div>
         </TabsContent>
 

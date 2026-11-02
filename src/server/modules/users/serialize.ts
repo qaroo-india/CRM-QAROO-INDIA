@@ -4,7 +4,7 @@
  */
 
 import { ALL_PERMISSIONS, type InstituteInfo, type JobRole, type SessionUser, type UserSummary } from '@ims/shared';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { db } from '../../db';
 import { students, trainers, type InstituteSettings, type PublicUser, type User } from '../../db/schema';
 import type { DbLike } from '../../db/types';
@@ -37,12 +37,36 @@ export async function studentPortalBlocked(userId: string, database: DbLike = db
 }
 
 /** The student or trainer record a portal login belongs to. */
-export async function accountLinks(user: Pick<User, 'id' | 'accountType'>, database: DbLike = db): Promise<AccountLinks> {
+export async function accountLinks(user: Pick<User, 'id' | 'accountType'> & { email?: string }, database: DbLike = db): Promise<AccountLinks> {
   if (user.accountType === 'student') {
-    return { studentId: (await database.select({ id: students.id }).from(students).where(eq(students.userId, user.id)).get())?.id ?? null, trainerId: null };
+    let studentId = (await database.select({ id: students.id }).from(students).where(eq(students.userId, user.id)).get())?.id ?? null;
+    if (!studentId && user.email) {
+      const match = await database.select({ id: students.id }).from(students).where(sql`lower(${students.email}) = ${user.email.toLowerCase()}`).get();
+      if (match) {
+        studentId = match.id;
+        try {
+          await database.update(students).set({ userId: user.id }).where(eq(students.id, match.id)).run();
+        } catch {
+          // ignore unique constraint if already linked elsewhere
+        }
+      }
+    }
+    return { studentId, trainerId: null };
   }
   if (user.accountType === 'faculty') {
-    return { studentId: null, trainerId: (await database.select({ id: trainers.id }).from(trainers).where(eq(trainers.userId, user.id)).get())?.id ?? null };
+    let trainerId = (await database.select({ id: trainers.id }).from(trainers).where(eq(trainers.userId, user.id)).get())?.id ?? null;
+    if (!trainerId && user.email) {
+      const match = await database.select({ id: trainers.id }).from(trainers).where(sql`lower(${trainers.email}) = ${user.email.toLowerCase()}`).get();
+      if (match) {
+        trainerId = match.id;
+        try {
+          await database.update(trainers).set({ userId: user.id }).where(eq(trainers.id, match.id)).run();
+        } catch {
+          // ignore unique constraint if already linked elsewhere
+        }
+      }
+    }
+    return { studentId: null, trainerId };
   }
   return { studentId: null, trainerId: null };
 }

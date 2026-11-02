@@ -43,6 +43,7 @@ import { getSettings } from '../../services/settings';
 import { ApiError } from '../../utils/ApiError';
 import type { RequestContext } from '../../utils/context';
 import { containsText, pageWindow, paginated } from '../../utils/pagination';
+import { hashPassword } from '../auth/password';
 import { admissionQuery, toAdmissionDto } from '../admissions/admissions.service';
 import { leadsByIds } from '../leads/leads.service';
 
@@ -273,8 +274,9 @@ function columnsFrom(input: StudentInput) {
 }
 
 export async function createStudent(ctx: RequestContext, raw: unknown): Promise<StudentDto> {
-  const body = (raw ?? {}) as { allowDuplicate?: unknown };
+  const body = (raw ?? {}) as { allowDuplicate?: unknown; portalPassword?: string; temporaryPassword?: string };
   const input = studentSchema.parse(raw);
+  const portalPassword = body.portalPassword || body.temporaryPassword;
   if (body.allowDuplicate !== true) {
     const matches = await findDuplicateStudents(input.phone, input.email);
     if (matches.length) {
@@ -292,13 +294,48 @@ export async function createStudent(ctx: RequestContext, raw: unknown): Promise<
       .returning()
       .get();
     await recordAudit(tx, ctx, { action: 'create', entityType: 'student', entityId: student.id, summary: `Registered student ${student.studentCode} ${student.fullName}`, after: student });
+
+    // If portalPassword provided and email is present, provision student portal login
+    if (portalPassword && input.email) {
+      const cleanEmail = input.email.trim().toLowerCase();
+      const passwordHash = await hashPassword(portalPassword);
+      const user = await tx.select().from(users).where(eq(users.email, cleanEmail)).get();
+      if (user) {
+        await tx.update(users).set({
+          passwordHash,
+          mustChangePassword: false,
+          isActive: true,
+          failedLoginCount: 0,
+          lockedUntil: null,
+          tokenVersion: sql`${users.tokenVersion} + 1`,
+        }).where(eq(users.id, user.id)).run();
+        await tx.update(students).set({ userId: user.id }).where(eq(students.id, student.id)).run();
+      } else {
+        const createdUser = await tx.insert(users).values({
+          name: input.fullName,
+          email: cleanEmail,
+          phone: input.phone,
+          passwordHash,
+          role: 'staff',
+          accountType: 'student',
+          permissions: [],
+          mustChangePassword: false,
+          isActive: true,
+          createdById: ctx.actorId || null,
+        }).returning().get();
+        await tx.update(students).set({ userId: createdUser.id }).where(eq(students.id, student.id)).run();
+      }
+    }
+
     return student.id;
   });
   return await getStudent(id);
 }
 
 export async function updateStudent(ctx: RequestContext, id: string, raw: unknown): Promise<StudentDto> {
+  const body = (raw ?? {}) as { portalPassword?: string; temporaryPassword?: string };
   const input = studentSchema.parse(raw);
+  const portalPassword = body.portalPassword || body.temporaryPassword;
   const existing = await db.select().from(students).where(eq(students.id, id)).get();
   if (!existing) throw ApiError.notFound('Student');
   await db.transaction(async (tx) => {
@@ -310,6 +347,42 @@ export async function updateStudent(ctx: RequestContext, id: string, raw: unknow
       summary: `Updated student ${existing.studentCode}`,
       ...diff(existing as unknown as Record<string, unknown>, updated as unknown as Record<string, unknown>),
     });
+
+    if (portalPassword && (input.email || existing.email)) {
+      const cleanEmail = (input.email || existing.email)!.trim().toLowerCase();
+      const passwordHash = await hashPassword(portalPassword);
+      const user = existing.userId
+        ? await tx.select().from(users).where(eq(users.id, existing.userId)).get()
+        : await tx.select().from(users).where(eq(users.email, cleanEmail)).get();
+
+      if (user) {
+        await tx.update(users).set({
+          passwordHash,
+          mustChangePassword: false,
+          isActive: true,
+          failedLoginCount: 0,
+          lockedUntil: null,
+          tokenVersion: sql`${users.tokenVersion} + 1`,
+        }).where(eq(users.id, user.id)).run();
+        if (!existing.userId) {
+          await tx.update(students).set({ userId: user.id }).where(eq(students.id, id)).run();
+        }
+      } else {
+        const createdUser = await tx.insert(users).values({
+          name: input.fullName,
+          email: cleanEmail,
+          phone: input.phone,
+          passwordHash,
+          role: 'staff',
+          accountType: 'student',
+          permissions: [],
+          mustChangePassword: false,
+          isActive: true,
+          createdById: ctx.actorId || null,
+        }).returning().get();
+        await tx.update(students).set({ userId: createdUser.id }).where(eq(students.id, id)).run();
+      }
+    }
   });
   return await getStudent(id);
 }

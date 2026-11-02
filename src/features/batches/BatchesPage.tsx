@@ -177,8 +177,30 @@ function ScheduleTab({ courseId }: { courseId: string }) {
 function TrainerDrawer({ trainer, open, onOpenChange }: { trainer: TrainerDto | null; open: boolean; onOpenChange: (o: boolean) => void }) {
   const defaults = useMemo(() => ({ name: trainer?.name ?? '', email: trainer?.email ?? '', phone: trainer?.phone ?? '', expertise: trainer?.expertise ?? '', isActive: trainer?.isActive ?? true }), [trainer]);
   const form = useZodForm(trainerSchema, { defaultValues: defaults });
-  useEffect(() => { if (open) form.reset(defaults); }, [open, defaults, form]);
-  const save = useBatchMutation((v: Record<string, unknown>) => (trainer ? api.put(`/trainers/${trainer.id}`, v) : api.post('/trainers', v)), 'Trainer saved');
+  const [enableFacultyLogin, setEnableFacultyLogin] = useState(true);
+  const [portalPassword, setPortalPassword] = useState('Faculty@1234');
+
+  useEffect(() => {
+    if (open) {
+      form.reset(defaults);
+      setEnableFacultyLogin(true);
+      setPortalPassword('Faculty@1234');
+    }
+  }, [open, defaults, form]);
+
+  const save = useBatchMutation(
+    (v: Record<string, unknown>) =>
+      trainer
+        ? api.put(`/trainers/${trainer.id}`, {
+            ...v,
+            ...(enableFacultyLogin && portalPassword ? { portalPassword } : {}),
+          })
+        : api.post('/trainers', {
+            ...v,
+            ...(enableFacultyLogin && portalPassword ? { portalPassword } : {}),
+          }),
+    'Trainer saved',
+  );
   const errors = form.formState.errors;
   return (
     <DialogRoot open={open} onOpenChange={onOpenChange}>
@@ -189,11 +211,51 @@ function TrainerDrawer({ trainer, open, onOpenChange }: { trainer: TrainerDto | 
           <Field label="Phone"><Input type="tel" {...form.register('phone')} /></Field>
           <Field label="Expertise"><Input {...form.register('expertise')} /></Field>
           <Switch id="trainer-active" checked={form.watch('isActive') ?? true} onCheckedChange={(v) => form.setValue('isActive', v)} label="Active" />
+
+          {Boolean(form.watch('email')) && (
+            <div className="space-y-3 rounded-control border bg-surface-sunken p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-fg">Faculty login</span>
+                <Switch
+                  id="trainer-portal"
+                  checked={enableFacultyLogin}
+                  onCheckedChange={setEnableFacultyLogin}
+                  label="Enable login"
+                />
+              </div>
+              {enableFacultyLogin && (
+                <div className="space-y-2 pt-1">
+                  <label className="block text-xs font-medium text-fg-muted">Password for {form.watch('email')}</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      className="flex-1 rounded border bg-surface px-3 py-1.5 font-mono text-sm text-fg"
+                      value={portalPassword}
+                      onChange={(e) => setPortalPassword(e.target.value)}
+                      placeholder="Minimum 10 characters"
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+                        const rand = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+                        setPortalPassword(`Faculty@${rand}2026`);
+                      }}
+                    >
+                      Generate
+                    </Button>
+                  </div>
+                  <p className="text-xs text-fg-subtle">Faculty can sign in with their email and this password immediately.</p>
+                </div>
+              )}
+            </div>
+          )}
         </form>
-        {trainer && (
+        {trainer?.portal && (
           <div className="mt-6 space-y-2 border-t pt-5">
-            <h3 className="text-sm font-semibold text-fg">Faculty login</h3>
-            <p className="text-sm text-fg-muted">Lets {trainer.name} sign in to see their batches, schedule, attendance, exams and material.</p>
+            <h3 className="text-sm font-semibold text-fg">Current login status</h3>
             <PortalAccessCard bare kind="trainer" recordId={trainer.id} name={trainer.name} email={trainer.email} portal={trainer.portal} invalidate={[['trainers']]} />
           </div>
         )}

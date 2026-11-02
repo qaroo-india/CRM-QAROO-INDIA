@@ -116,8 +116,6 @@ export async function requestStudentActivation(raw: unknown, meta: ClientMeta): 
     return; // switched off by staff: nothing to send
   }
 
-  const admitted = await db.get<{ n: number }>(sql`select count(*) as n from admissions where student_id = ${student.id} and status <> 'cancelled'`);
-  if (!admitted || Number(admitted.n) === 0) return;
   if (await db.select({ id: users.id }).from(users).where(eq(users.email, email)).get()) return;
 
   const placeholder = await hashPassword(randomBytes(24).toString('base64url'));
@@ -197,7 +195,7 @@ async function grantLogin(
     if (existing) {
       await db.transaction(async (tx) => {
         await tx.update(users)
-          .set({ isActive: true, passwordHash, mustChangePassword: true, email, failedLoginCount: 0, lockedUntil: null, tokenVersion: sql`${users.tokenVersion} + 1` })
+          .set({ isActive: true, passwordHash, mustChangePassword: false, email, failedLoginCount: 0, lockedUntil: null, tokenVersion: sql`${users.tokenVersion} + 1` })
           .where(eq(users.id, existing.id))
           .run();
         await revokeAllForUser(tx, existing.id);
@@ -221,7 +219,7 @@ async function grantLogin(
         role: 'staff',
         accountType: kind,
         permissions: kind === 'faculty' ? [...DEFAULT_FACULTY_PERMISSIONS] : [],
-        mustChangePassword: true,
+        mustChangePassword: false,
         createdById: ctx.actorId || null,
       })
       .returning()
@@ -240,8 +238,6 @@ export async function grantStudentPortal(ctx: RequestContext, studentId: string,
   if (PORTAL_BLOCKED_STUDENT_STATUSES.includes(s.status)) {
     throw ApiError.unprocessable(`This student is ${s.status}. Set them back to active before giving portal access.`, 'STUDENT_NOT_ACTIVE');
   }
-  const admitted = await db.select({ id: admissions.id }).from(admissions).where(and(eq(admissions.studentId, s.id), sql`${admissions.status} <> 'cancelled'`)).get();
-  if (!admitted) throw ApiError.unprocessable('Only students with an admission can have a portal login.', 'NO_ADMISSION');
   return await grantLogin(ctx, 'student', { id: s.id, name: s.fullName, email: s.email, phone: s.phone, userId: s.userId, label: `${s.fullName} (${s.studentCode})` }, raw);
 }
 

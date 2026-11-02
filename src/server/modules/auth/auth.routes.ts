@@ -10,13 +10,13 @@
  * POST /auth/reset-password    public: set a password with an emailed token (reset or activation)
  */
 
-import { changePasswordSchema, loginSchema, newId, type AccountType, type SessionResponse } from '@ims/shared';
-import { eq } from 'drizzle-orm';
+import { DEFAULT_FACULTY_PERMISSIONS, changePasswordSchema, loginSchema, newId, type AccountType, type SessionResponse } from '@ims/shared';
+import { eq, sql } from 'drizzle-orm';
 import { Router, type Request, type Response } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { env } from '../../config/env';
 import { db } from '../../db';
-import { users } from '../../db/schema';
+import { students, trainers, users } from '../../db/schema';
 import { authenticate } from '../../middleware/auth';
 import { recordAudit } from '../../services/audit';
 import { getSettings } from '../../services/settings';
@@ -94,11 +94,24 @@ authRouter.post('/firebase-login', loginLimiter, async (req, res) => {
   }
 
   const cleanEmail = email.trim().toLowerCase();
-  const userName = (name && typeof name === 'string' ? name.trim() : '') || cleanEmail.split('@')[0] || 'User';
-
   const isOwnerDefault =
     cleanEmail === 'admin@qaroo.in' ||
     cleanEmail === 'owner@institute.local';
+
+  // Check if this email belongs to a trainer or student
+  const trainer = await db.select().from(trainers).where(sql`lower(${trainers.email}) = ${cleanEmail}`).get();
+  const student = await db.select().from(students).where(sql`lower(${students.email}) = ${cleanEmail}`).get();
+
+  let targetAccountType: AccountType = (accountType as AccountType) || 'team';
+  if (trainer) targetAccountType = 'faculty';
+  else if (student) targetAccountType = 'student';
+
+  const userName =
+    (name && typeof name === 'string' ? name.trim() : '') ||
+    trainer?.name ||
+    student?.fullName ||
+    cleanEmail.split('@')[0] ||
+    'User';
 
   // Find or create the user in the database
   let user = await db.select().from(users).where(eq(users.email, cleanEmail)).get();
@@ -114,8 +127,8 @@ authRouter.post('/firebase-login', loginLimiter, async (req, res) => {
         name: userName,
         passwordHash: dummyPasswordHash,
         role: assignedRole,
-        accountType: (accountType as AccountType) || 'team',
-        permissions: assignedRole === 'owner' ? ['*'] : [],
+        accountType: targetAccountType,
+        permissions: assignedRole === 'owner' ? ['*'] : targetAccountType === 'faculty' ? [...DEFAULT_FACULTY_PERMISSIONS] : [],
         isActive: true,
         mustChangePassword: false,
       })
@@ -123,6 +136,21 @@ authRouter.post('/firebase-login', loginLimiter, async (req, res) => {
       .get();
   } else if (!user.isActive) {
     throw new ApiError(403, 'ACCOUNT_DISABLED', 'This account has been deactivated. Contact the institute owner.');
+  }
+
+  // Ensure trainer/student links are established
+  if (trainer && !trainer.userId) {
+    await db.update(trainers).set({ userId: user.id }).where(eq(trainers.id, trainer.id)).run();
+    if (user.accountType !== 'faculty' && user.role !== 'owner') {
+      await db.update(users).set({ accountType: 'faculty', permissions: [...DEFAULT_FACULTY_PERMISSIONS] }).where(eq(users.id, user.id)).run();
+      user.accountType = 'faculty';
+    }
+  } else if (student && !student.userId) {
+    await db.update(students).set({ userId: user.id }).where(eq(students.id, student.id)).run();
+    if (user.accountType !== 'student' && user.role !== 'owner') {
+      await db.update(users).set({ accountType: 'student', permissions: [] }).where(eq(users.id, user.id)).run();
+      user.accountType = 'student';
+    }
   }
 
   // Issue session tokens for the authenticated user

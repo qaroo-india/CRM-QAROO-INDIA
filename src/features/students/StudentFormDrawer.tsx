@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { DialogRoot, DrawerContent } from '@/components/ui/Dialog';
 import { Field, FormSection } from '@/components/ui/Field';
 import { Input, Select, Textarea } from '@/components/ui/Input';
+import { Checkbox } from '@/components/ui/Toggle';
 import { api, ApiRequestError } from '@/lib/api';
 import { handleFormError, useZodForm } from '@/lib/forms';
 import { humanize } from '@/utils/format';
@@ -126,18 +127,22 @@ export function StudentFormDrawer({ student, open, onOpenChange, onSaved }: Stud
   const defaults = useMemo(() => studentDefaults(student), [student]);
   const form = useZodForm(studentSchema, { defaultValues: defaults });
   const [conflict, setConflict] = useState<DuplicateMatch[] | null>(null);
+  const [enablePortal, setEnablePortal] = useState(true);
+  const [portalPassword, setPortalPassword] = useState('Student@1234');
 
   useEffect(() => {
     if (open) {
       form.reset(defaults);
       setConflict(null);
+      setEnablePortal(true);
+      setPortalPassword('Student@1234');
     }
   }, [open, defaults, form]);
 
   const duplicates = useDuplicateCheck('students', form.watch('phone'), form.watch('email') ?? undefined, student?.id);
 
   const save = useMutation({
-    mutationFn: ({ values, allowDuplicate }: { values: StudentInput; allowDuplicate?: boolean }) =>
+    mutationFn: ({ values, allowDuplicate }: { values: StudentInput & { portalPassword?: string }; allowDuplicate?: boolean }) =>
       student ? api.put<StudentDto>(`/students/${student.id}`, values) : api.post<StudentDto>('/students', { ...values, allowDuplicate }),
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: ['students'] });
@@ -154,7 +159,16 @@ export function StudentFormDrawer({ student, open, onOpenChange, onSaved }: Stud
     },
   });
 
-  const submit = (allowDuplicate = false) => form.handleSubmit((values) => save.mutate({ values: values as StudentInput, allowDuplicate }))();
+  const submit = (allowDuplicate = false) =>
+    form.handleSubmit((values) =>
+      save.mutate({
+        values: {
+          ...(values as StudentInput),
+          ...(enablePortal && portalPassword ? { portalPassword } : {}),
+        },
+        allowDuplicate,
+      }),
+    )();
 
   return (
     <DialogRoot open={open} onOpenChange={onOpenChange}>
@@ -181,6 +195,45 @@ export function StudentFormDrawer({ student, open, onOpenChange, onSaved }: Stud
           <FormSection title="Contact">
             <StudentFields form={form} />
           </FormSection>
+          {Boolean(form.watch('email')) && (
+            <FormSection title="Student portal login">
+              <div className="space-y-3 rounded-control border bg-surface-sunken p-3">
+                <Checkbox
+                  id="enable-portal"
+                  checked={enablePortal}
+                  onCheckedChange={(checked) => setEnablePortal(Boolean(checked))}
+                  label={<span className="text-sm font-medium text-fg">Enable student portal login</span>}
+                />
+                {enablePortal && (
+                  <div className="space-y-2 pt-1">
+                    <label className="block text-xs font-medium text-fg-muted">Portal password for {form.watch('email')}</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        className="flex-1 rounded border bg-surface px-3 py-1.5 font-mono text-sm text-fg"
+                        value={portalPassword}
+                        onChange={(e) => setPortalPassword(e.target.value)}
+                        placeholder="Minimum 10 characters"
+                      />
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+                          const rand = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+                          setPortalPassword(`Student@${rand}2026`);
+                        }}
+                      >
+                        Generate
+                      </Button>
+                    </div>
+                    <p className="text-xs text-fg-subtle">The student can sign in with their email and this password immediately.</p>
+                  </div>
+                )}
+              </div>
+            </FormSection>
+          )}
           <DuplicateWarning matches={conflict ?? duplicates.data} />
           <StudentProfileFields form={form} isEdit={Boolean(student)} />
           <Field label="Notes" error={form.formState.errors.notes?.message}>

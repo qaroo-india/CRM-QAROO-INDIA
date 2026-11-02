@@ -13,6 +13,7 @@
 
 import {
   BATCH_ASSIGNABLE_STATUSES,
+  DEFAULT_FACULTY_PERMISSIONS,
   assignSchema,
   batchListQuerySchema,
   batchSchema,
@@ -39,6 +40,7 @@ import { instituteToday } from '../../services/clock';
 import { ApiError } from '../../utils/ApiError';
 import type { RequestContext } from '../../utils/context';
 import { containsText, pageWindow, paginated } from '../../utils/pagination';
+import { hashPassword } from '../auth/password';
 import { admissionHooks } from '../admissions/hooks';
 
 const B_ID = qualified('batches', 'id');
@@ -74,17 +76,57 @@ export async function listTrainers(): Promise<TrainerDto[]> {
 }
 
 export async function saveTrainer(ctx: RequestContext, raw: unknown, id?: string): Promise<TrainerDto[]> {
+  const body = (raw ?? {}) as { portalPassword?: string; temporaryPassword?: string; createPortalLogin?: boolean };
   const input = trainerSchema.parse(raw);
+  const portalPassword = body.portalPassword || body.temporaryPassword;
   const values = { name: input.name, email: input.email ?? null, phone: input.phone ?? null, expertise: input.expertise ?? null, isActive: input.isActive };
   await db.transaction(async (tx) => {
+    let trainerRow: typeof trainers.$inferSelect;
     if (id) {
       const existing = await tx.select().from(trainers).where(eq(trainers.id, id)).get();
       if (!existing) throw ApiError.notFound('Trainer');
-      const updated = await tx.update(trainers).set(values).where(eq(trainers.id, id)).returning().get();
-      await recordAudit(tx, ctx, { action: 'update', entityType: 'trainer', entityId: id, summary: `Updated trainer ${updated.name}`, ...diff(existing as unknown as Record<string, unknown>, updated as unknown as Record<string, unknown>) });
+      trainerRow = await tx.update(trainers).set(values).where(eq(trainers.id, id)).returning().get();
+      await recordAudit(tx, ctx, { action: 'update', entityType: 'trainer', entityId: id, summary: `Updated trainer ${trainerRow.name}`, ...diff(existing as unknown as Record<string, unknown>, trainerRow as unknown as Record<string, unknown>) });
     } else {
-      const row = await tx.insert(trainers).values(values).returning().get();
-      await recordAudit(tx, ctx, { action: 'create', entityType: 'trainer', entityId: row.id, summary: `Added trainer ${row.name}`, after: row });
+      trainerRow = await tx.insert(trainers).values(values).returning().get();
+      await recordAudit(tx, ctx, { action: 'create', entityType: 'trainer', entityId: trainerRow.id, summary: `Added trainer ${trainerRow.name}`, after: trainerRow });
+    }
+
+    // If portalPassword provided and email is present, provision or update the user account
+    if (portalPassword && values.email) {
+      const cleanEmail = values.email.trim().toLowerCase();
+      const passwordHash = await hashPassword(portalPassword);
+      const user = trainerRow.userId
+        ? await tx.select().from(users).where(eq(users.id, trainerRow.userId)).get()
+        : await tx.select().from(users).where(eq(users.email, cleanEmail)).get();
+
+      if (user) {
+        await tx.update(users).set({
+          passwordHash,
+          mustChangePassword: false,
+          isActive: true,
+          failedLoginCount: 0,
+          lockedUntil: null,
+          tokenVersion: sql`${users.tokenVersion} + 1`,
+        }).where(eq(users.id, user.id)).run();
+        if (!trainerRow.userId) {
+          await tx.update(trainers).set({ userId: user.id }).where(eq(trainers.id, trainerRow.id)).run();
+        }
+      } else {
+        const createdUser = await tx.insert(users).values({
+          name: values.name,
+          email: cleanEmail,
+          phone: values.phone,
+          passwordHash,
+          role: 'staff',
+          accountType: 'faculty',
+          permissions: [...DEFAULT_FACULTY_PERMISSIONS],
+          mustChangePassword: false,
+          isActive: true,
+          createdById: ctx.actorId || null,
+        }).returning().get();
+        await tx.update(trainers).set({ userId: createdUser.id }).where(eq(trainers.id, trainerRow.id)).run();
+      }
     }
   });
   return await listTrainers();

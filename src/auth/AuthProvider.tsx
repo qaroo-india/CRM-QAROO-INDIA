@@ -43,7 +43,7 @@ interface AuthContextValue {
   /** Account type + permission check, for navigation and guards. */
   viewer: { accountType: AccountType; jobRole: JobRole | null; can: (permission: Permission) => boolean };
   signIn: (input: LoginInput) => Promise<SessionResponse>;
-  signInWithGoogle: () => Promise<SessionResponse>;
+  signInWithGoogle: (targetAccountType?: AccountType) => Promise<SessionResponse>;
   signOut: () => Promise<void>;
   /** Replace the cached session (after a password change, settings edit). */
   updateSession: (session: SessionResponse) => void;
@@ -190,7 +190,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [dropOtherQueries, updateSession],
   );
 
-  const signInWithGoogle = useCallback(async () => {
+  const signInWithGoogle = useCallback(async (targetAccountType?: AccountType) => {
     const { signInWithPopup } = await import('firebase/auth');
     const { auth, googleProvider } = await import('@/lib/firebase');
     const { syncUserToFirestore } = await import('@/lib/firebaseUser');
@@ -204,6 +204,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email: fbUser.email || '',
       name: fbUser.displayName,
       photoURL: fbUser.photoURL,
+      accountType: targetAccountType,
     });
 
     // Exchange with backend session
@@ -211,6 +212,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email: fbUser.email,
       name: fbUser.displayName,
       uid: fbUser.uid,
+      accountType: targetAccountType,
     });
 
     dropOtherQueries();
