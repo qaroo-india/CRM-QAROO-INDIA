@@ -24,15 +24,10 @@ export const loginSchema = z.object({
 });
 export type LoginInput = z.infer<typeof loginSchema>;
 
-export const changePasswordSchema = z
-  .object({
-    currentPassword: z.string().min(1, 'Current password is required'),
-    newPassword: passwordSchema,
-  })
-  .refine((value) => value.currentPassword !== value.newPassword, {
-    path: ['newPassword'],
-    message: 'New password must be different from the current one',
-  });
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().optional().default(''),
+  newPassword: passwordSchema,
+});
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 
 const permissionList = z.array(z.enum(PERMISSIONS)).max(PERMISSIONS.length);

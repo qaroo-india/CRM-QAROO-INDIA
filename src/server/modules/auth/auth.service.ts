@@ -190,8 +190,11 @@ export async function changePassword(
   const user = await db.select().from(users).where(eq(users.id, ctx.actorId)).get();
   if (!user) throw ApiError.unauthorized();
 
-  if (!(await verifyPassword(user.passwordHash, input.currentPassword))) {
-    throw ApiError.validation([{ path: 'currentPassword', message: 'Current password is incorrect' }]);
+  // Only require current password verification if not already in forced password change mode
+  if (!user.mustChangePassword) {
+    if (!input.currentPassword || !(await verifyPassword(user.passwordHash, input.currentPassword))) {
+      throw ApiError.validation([{ path: 'currentPassword', message: 'Current password is incorrect' }]);
+    }
   }
 
   const passwordHash = await hashPassword(input.newPassword);

@@ -223,6 +223,31 @@ authRouter.post('/password', authenticate, async (req, res) => {
   ok(res, await sessionBody(req, res, session));
 });
 
+authRouter.post('/keep-password', authenticate, async (req, res) => {
+  const ctx = contextFrom(req);
+  const user = await db.select().from(users).where(eq(users.id, ctx.actorId)).get();
+  if (!user) throw ApiError.unauthorized();
+
+  const session = await withAccessToken(
+    await db.transaction(async (tx) => {
+      const updated = await tx
+        .update(users)
+        .set({
+          mustChangePassword: false,
+          passwordChangedAt: new Date(),
+        })
+        .where(eq(users.id, user.id))
+        .returning()
+        .get();
+      const refresh = await issueRefreshToken(tx, user.id, meta(req));
+      return { user: updated, accessToken: '', refresh };
+    }),
+  );
+
+  setSessionCookies(res, session.accessToken, session.refresh);
+  ok(res, await sessionBody(req, res, session));
+});
+
 authRouter.post('/forgot-password', selfServiceLimiter, async (req, res) => {
   await requestPasswordReset(req.body, meta(req));
   ok(res, { sent: true });

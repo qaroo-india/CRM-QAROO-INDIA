@@ -1,5 +1,6 @@
 import { changePasswordSchema, type SessionResponse } from '@ims/shared';
-import { KeyRound } from 'lucide-react';
+import { Eye, EyeOff, KeyRound } from 'lucide-react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/Button';
 import { Field } from '@/components/ui/Field';
@@ -12,36 +13,118 @@ import { useAuth } from './AuthProvider';
 /** Change-password form, used both as the forced first-login step and in Account. */
 export function ChangePasswordForm({ onDone, className }: { onDone?: () => void; className?: string }) {
   const auth = useAuth();
-  const form = useZodForm(changePasswordSchema, { defaultValues: { currentPassword: '', newPassword: '' } });
+  const isForced = Boolean(auth.user?.mustChangePassword);
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [keeping, setKeeping] = useState(false);
+
+  const form = useZodForm(changePasswordSchema, {
+    defaultValues: { currentPassword: '', newPassword: '' },
+  });
 
   const onSubmit = form.handleSubmit(async (values) => {
     try {
-      const session = await api.post<SessionResponse>('/auth/password', values);
+      const session = await api.post<SessionResponse>('/auth/password', {
+        currentPassword: values.currentPassword || '',
+        newPassword: values.newPassword,
+      });
+
+      // Keep Firebase Auth password in sync if available
+      try {
+        const { auth: fbAuth } = await import('@/lib/firebase');
+        const { updatePassword } = await import('firebase/auth');
+        if (fbAuth.currentUser) {
+          await updatePassword(fbAuth.currentUser, values.newPassword);
+        }
+      } catch {
+        // Non-blocking
+      }
+
       auth.updateSession(session);
       form.reset();
-      toast.success('Password changed. Other sessions have been signed out.');
+      toast.success('Password set successfully. Welcome to your workspace!');
       onDone?.();
     } catch (error) {
       handleFormError(form, error, 'Could not change the password');
     }
   });
 
+  const handleKeepPassword = async () => {
+    setKeeping(true);
+    try {
+      const session = await api.post<SessionResponse>('/auth/keep-password');
+      auth.updateSession(session);
+      toast.success('Welcome to your workspace!');
+      onDone?.();
+    } catch (error) {
+      handleFormError(form, error, 'Could not continue with current password');
+    } finally {
+      setKeeping(false);
+    }
+  };
+
   return (
     <form onSubmit={onSubmit} noValidate className={cn('space-y-4', className)}>
-      <Field label="Current password" error={form.formState.errors.currentPassword?.message} required>
-        <Input type="password" autoComplete="current-password" {...form.register('currentPassword')} />
-      </Field>
+      {!isForced && (
+        <Field label="Current password" error={form.formState.errors.currentPassword?.message} required>
+          <Input
+            type={showCurrent ? 'text' : 'password'}
+            autoComplete="current-password"
+            trailing={
+              <button
+                type="button"
+                tabIndex={-1}
+                className="text-fg-subtle hover:text-fg"
+                onClick={() => setShowCurrent((v) => !v)}
+              >
+                {showCurrent ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            }
+            {...form.register('currentPassword')}
+          />
+        </Field>
+      )}
+
       <Field
-        label="New password"
+        label={isForced ? 'Choose your password' : 'New password'}
         hint="At least 10 characters, including a letter and a number."
         error={form.formState.errors.newPassword?.message}
         required
       >
-        <Input type="password" autoComplete="new-password" {...form.register('newPassword')} />
+        <Input
+          type={showNew ? 'text' : 'password'}
+          autoComplete="new-password"
+          trailing={
+            <button
+              type="button"
+              tabIndex={-1}
+              className="text-fg-subtle hover:text-fg"
+              onClick={() => setShowNew((v) => !v)}
+            >
+              {showNew ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+            </button>
+          }
+          {...form.register('newPassword')}
+        />
       </Field>
-      <Button type="submit" loading={form.formState.isSubmitting}>
-        Change password
-      </Button>
+
+      <div className="flex flex-col gap-2 pt-2">
+        <Button type="submit" className="w-full" loading={form.formState.isSubmitting}>
+          {isForced ? 'Save password & continue' : 'Change password'}
+        </Button>
+
+        {isForced && (
+          <Button
+            type="button"
+            variant="secondary"
+            className="w-full"
+            loading={keeping}
+            onClick={handleKeepPassword}
+          >
+            Keep current password & continue
+          </Button>
+        )}
+      </div>
     </form>
   );
 }
