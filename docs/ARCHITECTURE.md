@@ -314,7 +314,7 @@ Summary only; [SECURITY.md](SECURITY.md) has the full review, with the test that
 
 ```
  Browser ──HTTPS──▶ Vercel project (one domain, vercel.json "services")
-                       ├─ /api/*  → service "server": Express as one Vercel Function (dist/vercel.js)
+                       ├─ /api/*  → service "server": Express as one Vercel Function (index.js → dist/vercel.js)
                        │              ├─ Turso: hosted libSQL database
                        │              └─ Vercel Blob (private): documents, photos, report files
                        ├─ /*      → service "client": static SPA, unknown paths → index.html

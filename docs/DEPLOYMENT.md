@@ -5,7 +5,7 @@ The recommended production setup runs **everything on Vercel**, as one project w
 
 ```
  Browser ──HTTPS──▶ Vercel (one domain)
-                      ├─ /api/*  ──▶ service "server"  Express as a Vercel Function (dist/vercel.js)
+                      ├─ /api/*  ──▶ service "server"  Express as a Vercel Function (server/index.js)
                       │                ├─ Turso         hosted libSQL database (TURSO_DATABASE_URL)
                       │                └─ Vercel Blob   PRIVATE store: documents, photos, report files
                       ├─ /*      ──▶ service "client"  React app (client/dist, static)

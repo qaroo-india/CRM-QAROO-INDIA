@@ -12,11 +12,11 @@
     "server": {
       "root": "server",
       "framework": "express",
-      "entrypoint": "dist/vercel.js",
+      "entrypoint": "index.js",
       "installCommand": "if [ -f ../package-lock.json ]; then cd ..; fi; npm ci --workspace=server --workspace=shared --include-workspace-root --include=dev",
       "buildCommand": "if [ -f ../package-lock.json ]; then cd ..; fi; npm run build --workspace=server",
       "functions": {
-        "dist/vercel.js": {
+        "index.js": {
           "includeFiles": "{drizzle,assets}/**",
           "maxDuration": 60
         }
