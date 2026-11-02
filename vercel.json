@@ -4,8 +4,8 @@
     "client": {
       "root": "client",
       "framework": "vite",
-      "installCommand": "cd .. && npm ci --workspace=client --workspace=shared --include-workspace-root",
-      "buildCommand": "npm run build",
+      "installCommand": "if [ -f ../package-lock.json ]; then cd ..; fi; npm ci --workspace=client --workspace=shared --include-workspace-root",
+      "buildCommand": "if [ -f ../package-lock.json ]; then cd ..; fi; npm run build --workspace=client",
       "outputDirectory": "dist",
       "rewrites": [{ "source": "/((?!assets/).*)", "destination": "/index.html" }]
     },
@@ -13,8 +13,8 @@
       "root": "server",
       "framework": "express",
       "entrypoint": "dist/vercel.js",
-      "installCommand": "cd .. && npm ci --workspace=server --workspace=shared --include-workspace-root --include=dev",
-      "buildCommand": "npm run build:vercel",
+      "installCommand": "if [ -f ../package-lock.json ]; then cd ..; fi; npm ci --workspace=server --workspace=shared --include-workspace-root --include=dev",
+      "buildCommand": "if [ -f ../package-lock.json ]; then cd ..; fi; npm run build:vercel --workspace=server",
       "functions": {
         "dist/vercel.js": {
           "includeFiles": "{drizzle,assets}/**",
