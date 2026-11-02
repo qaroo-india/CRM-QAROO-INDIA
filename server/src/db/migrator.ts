@@ -23,11 +23,19 @@ interface JournalEntry {
   when: number;
 }
 
+/**
+ * The committed journal, set by scripts/build.mjs, so the health check in a
+ * serverless function needs no migration files on disk. Undefined when
+ * running from source.
+ */
+declare const __EMBEDDED_JOURNAL__: JournalEntry[] | undefined;
+
 export async function runMigrations(database: Db, folder = MIGRATIONS_FOLDER): Promise<void> {
   await migrate(database, { migrationsFolder: folder });
 }
 
 function readJournal(folder: string): JournalEntry[] {
+  if (folder === MIGRATIONS_FOLDER && typeof __EMBEDDED_JOURNAL__ !== 'undefined') return __EMBEDDED_JOURNAL__;
   const journalPath = join(folder, 'meta', '_journal.json');
   if (!existsSync(journalPath)) return [];
   const parsed = JSON.parse(readFileSync(journalPath, 'utf8')) as { entries?: JournalEntry[] };

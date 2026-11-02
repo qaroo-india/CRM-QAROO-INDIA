@@ -14,13 +14,7 @@
       "framework": "express",
       "entrypoint": "index.js",
       "installCommand": "if [ -f ../package-lock.json ]; then cd ..; fi; npm ci --workspace=server --workspace=shared --include-workspace-root --include=dev",
-      "buildCommand": "if [ -f ../package-lock.json ]; then cd ..; fi; npm run build --workspace=server",
-      "functions": {
-        "index.js": {
-          "includeFiles": "{drizzle,assets}/**",
-          "maxDuration": 60
-        }
-      }
+      "buildCommand": "if [ -f ../package-lock.json ]; then cd ..; fi; npm run build --workspace=server"
     }
   },
   "rewrites": [

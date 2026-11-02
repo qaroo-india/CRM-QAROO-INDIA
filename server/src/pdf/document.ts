@@ -3,6 +3,8 @@
  *
  * Inter is embedded (server/assets/fonts) because PDFKit's built-in
  * Helvetica has no rupee glyph; a receipt must print "₹", not a box.
+ * The production bundle carries the font files inside it (scripts/build.mjs),
+ * so a serverless function needs no font files on disk.
  * Documents buffer their pages so page numbers ("Page 2 of 5") can be
  * stamped once the final page count is known.
  */
@@ -12,6 +14,19 @@ import PDFDocument from 'pdfkit';
 import { serverPath } from '../config/paths';
 
 const FONT_DIR = serverPath('assets', 'fonts');
+
+/** Base64 font files, set by scripts/build.mjs; undefined when running from source. */
+declare const __EMBEDDED_FONTS__: { regular: string; semiBold: string } | undefined;
+
+let fonts: { regular: Buffer | string; semiBold: Buffer | string } | null = null;
+
+function interFonts() {
+  fonts ??=
+    typeof __EMBEDDED_FONTS__ === 'undefined'
+      ? { regular: resolve(FONT_DIR, 'Inter_400Regular.ttf'), semiBold: resolve(FONT_DIR, 'Inter_600SemiBold.ttf') }
+      : { regular: Buffer.from(__EMBEDDED_FONTS__.regular, 'base64'), semiBold: Buffer.from(__EMBEDDED_FONTS__.semiBold, 'base64') };
+  return fonts;
+}
 
 export const PDF_COLORS = {
   ink: '#0f172a',
@@ -34,8 +49,8 @@ export function createDocument(title: string, options: { landscape?: boolean } =
     bufferPages: true,
     info: { Title: title, Author: 'Institute OS', Creator: 'Institute OS' },
   });
-  doc.registerFont('Inter', resolve(FONT_DIR, 'Inter_400Regular.ttf'));
-  doc.registerFont('Inter-SemiBold', resolve(FONT_DIR, 'Inter_600SemiBold.ttf'));
+  doc.registerFont('Inter', interFonts().regular);
+  doc.registerFont('Inter-SemiBold', interFonts().semiBold);
   doc.font('Inter').fontSize(10).fillColor(PDF_COLORS.ink);
   return doc;
 }

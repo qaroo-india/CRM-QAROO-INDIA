@@ -136,7 +136,8 @@ The endpoint answers `500` when a job failed, so failures show in the cron logs.
 - **4.5 MB per request and per response.**
   - Uploads are capped at 4 MB (`MAX_UPLOAD_MB`).
   - A very large export can exceed the response limit. Narrow its filters, or use the emailed report instead.
-- **60 seconds per request** (`maxDuration` in `vercel.json`). Report generation for a year of data fits easily, but keep it in mind for bulk imports.
+- **Vercel's per-request time limit** (the project's default function duration). Report generation for a year of data fits easily, but keep it in mind for bulk imports.
+- **No files on the function's disk are needed.** The bundle carries the PDF fonts and the migration list (`scripts/build.mjs`).
 - **Rate limits are kept per function instance.** Under load Vercel runs several instances, so the sign-in limit is per instance. For a hard limit, add a rate-limit rule in the Vercel Firewall for `/api/v1/auth/login`.
 - **Settings** (time zone, prefixes) are cached per instance for up to a minute. After an owner edits Settings, other instances pick the change up within a minute.
 
@@ -177,9 +178,8 @@ The endpoint answers `500` when a job failed, so failures show in the cron logs.
 | Build fails with `Invalid server environment configuration` | The message names the variable. On Vercel this is usually a missing Turso or Blob connection, a missing secret, or `EMAIL_TRANSPORT=log`. |
 | Build fails while migrating | The build log shows the SQL error. Nothing went live; fix the problem and redeploy. |
 | Health shows `database: down` | `TURSO_DATABASE_URL` or `TURSO_AUTH_TOKEN` is missing or wrong for this environment. |
-| Health shows `migrations: degraded` | This deployment's build did not migrate (a Preview without `MIGRATE_ON_BUILD=true`), or the `drizzle` folder is missing from the function (`includeFiles` in `vercel.json`). |
+| Health shows `migrations: degraded` | This deployment's build did not migrate: a Preview without `MIGRATE_ON_BUILD=true`. |
 | Uploads fail with `413` | The file is over 4 MB. This is a Vercel Function limit. |
 | Reminders or scheduled reports never happen | Check that `CRON_SECRET` is set and that **Settings → Cron Jobs** shows the job. A `401` in its log means the secret differs. |
 | Everyone gets "Too many requests" together | `TRUST_PROXY` is too low, so all users share the proxy's IP. Leave it unset on Vercel (it defaults to 1). |
 | Report emails show `failed` | Open Reports → History: the provider's error is shown, for example authentication or a sender domain that isn't verified. Fix `SMTP_*`, then use **Retry**. |
-| PDFs fail with a font error | The `assets` folder is missing from the function (`includeFiles` in `vercel.json`). |

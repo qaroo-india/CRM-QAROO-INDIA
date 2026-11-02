@@ -25,6 +25,16 @@ const external = Object.keys(pkg.dependencies ?? {}).filter((name) => !name.star
 
 rmSync(new URL('../dist', import.meta.url), { recursive: true, force: true });
 
+// Files the server reads at run time, carried inside the bundle so a Vercel
+// Function needs nothing else on disk: the PDF fonts (src/pdf/document.ts)
+// and the migration journal for the health check (src/db/migrator.ts).
+const font = (file) => readFileSync(new URL(`../assets/fonts/${file}`, import.meta.url)).toString('base64');
+const journal = JSON.parse(readFileSync(new URL('../drizzle/meta/_journal.json', import.meta.url), 'utf8'));
+const define = {
+  __EMBEDDED_FONTS__: JSON.stringify({ regular: font('Inter_400Regular.ttf'), semiBold: font('Inter_600SemiBold.ttf') }),
+  __EMBEDDED_JOURNAL__: JSON.stringify(journal.entries.map(({ idx, tag, when }) => ({ idx, tag, when }))),
+};
+
 const result = await build({
   entryPoints: {
     server: 'src/server.ts',
@@ -38,6 +48,7 @@ const result = await build({
   platform: 'node',
   format: 'esm',
   target: 'node22',
+  define,
   sourcemap: true,
   external: [...external, 'pino-pretty'],
   logLevel: 'info',

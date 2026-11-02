@@ -374,5 +374,5 @@ Step-by-step instructions: [DEPLOYMENT.md](DEPLOYMENT.md).
 - **Email** needs SMTP credentials. In development, `EMAIL_TRANSPORT=log` records deliveries as "not delivered (dev mode)" and sends nothing.
 - **Import previews** expire after 30 minutes.
 - **Postgres** is supported by design (D6) but not implemented. Turso is implemented.
-- **On Vercel:** 4.5 MB request and response bodies (uploads capped at 4 MB), 60 s per request, and on the Hobby plan cron runs once a day. See [DEPLOYMENT.md](DEPLOYMENT.md) §5.
+- **On Vercel:** 4.5 MB request and response bodies (uploads capped at 4 MB), Vercel's per-request time limit, and on the Hobby plan cron runs once a day. See [DEPLOYMENT.md](DEPLOYMENT.md) §5.
 - **No 2FA, no virus scanning of uploads.** See SECURITY.md.
