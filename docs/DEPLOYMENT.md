@@ -15,7 +15,7 @@ The recommended production setup runs **everything on Vercel**, as one project w
 | Service | Public path | Root | What runs |
 |---|---|---|---|
 | `client` | `/` (everything not under `/api`) | `client/` | Vite build, served as static files; unknown paths fall back to `index.html` |
-| `server` | `/api/*` (path passed through unchanged) | `server/` | the Express API, bundled by `npm run build:vercel` |
+| `server` | `/api/*` (path passed through unchanged) | `server/` | the Express API, bundled by `npm run build` |
 
 There are no service bindings. The browser calls `/api/v1` on the same domain, so the
 `HttpOnly; Secure; SameSite=Strict` auth cookies are first-party and no CORS is involved.
@@ -40,8 +40,12 @@ There are no service bindings. The browser calls `/api/v1` on the same domain, s
 
 ## 2. Create the project and connect storage
 
-1. In Vercel, choose **Add New → Project** and import the repository.
-   - Keep the **root directory as the repository root**; `vercel.json` defines both services, their install and build commands.
+1. In Vercel, choose **Add New → Project** and import the repository. Then, in **Settings → Build and Deployment**:
+   - **Framework Preset: Services.** Vercel only builds the `services` in `vercel.json` when the project is a Services project.
+   - **Root Directory: empty**, meaning the repository root, where `vercel.json` is.
+   - **No overrides** for the install, build or output commands; each service sets its own.
+
+   If the project is instead set up as one Express app in `server/`, only the API deploys: `server/index.js` is its entry and the build still migrates the database. The web app is missing from that setup, so switch to Services.
 2. **Database:**
    1. Open **Storage → Marketplace → Turso** and create a database.
    2. Connect it to the **Production** environment. This sets `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`, which the server reads.
@@ -169,6 +173,7 @@ The endpoint answers `500` when a job failed, so failures show in the cron logs.
 
 | Symptom | Cause and fix |
 |---|---|
+| The log shows `Installing dependencies...` and `npm run build` for `@ims/server` only, and no client build | The project is not a Services project, so `vercel.json`'s services were ignored. Set Framework Preset to **Services** and clear Root Directory (§2). |
 | Build fails with `Invalid server environment configuration` | The message names the variable. On Vercel this is usually a missing Turso or Blob connection, a missing secret, or `EMAIL_TRANSPORT=log`. |
 | Build fails while migrating | The build log shows the SQL error. Nothing went live; fix the problem and redeploy. |
 | Health shows `database: down` | `TURSO_DATABASE_URL` or `TURSO_AUTH_TOKEN` is missing or wrong for this environment. |

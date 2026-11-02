@@ -1,7 +1,9 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    "types": ["node"]
+    // No global type packages: Node's types arrive through the "node:" imports.
+    // (Vercel compiles with this file; "types": ["node"] failed to resolve there.)
+    "types": []
   },
   "include": ["src/**/*.ts", "tests/**/*.ts", "drizzle.config.ts", "vitest.config.ts"]
 }

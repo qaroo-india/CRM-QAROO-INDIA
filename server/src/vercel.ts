@@ -5,7 +5,7 @@
  * under /api, path unchanged. Unlike src/server.ts there is no listen(), no
  * in-process timers (Vercel Cron calls /api/v1/cron/tick) and no shutdown
  * handling. Settings are loaded per instance by the ensureSettings
- * middleware; migrations run during the build (scripts/vercel-build.mjs).
+ * middleware; migrations run during the build (scripts/vercel-migrate.mjs).
  */
 
 import './config/vercelDefaults';

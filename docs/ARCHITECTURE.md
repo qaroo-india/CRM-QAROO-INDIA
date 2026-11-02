@@ -327,7 +327,7 @@ Summary only; [SECURITY.md](SECURITY.md) has the full review, with the test that
   - settings are cached per instance and re-read every minute;
   - each due report schedule is claimed atomically, so overlapping runners never send it twice.
 - **Background jobs:** a long-running server runs them on timers (`JOBS_ENABLED`). On Vercel, Vercel Cron calls `/api/v1/cron/tick` with `CRON_SECRET`.
-- **Migrations** run in the production build (`scripts/vercel-build.mjs`), before the new code goes live.
+- **Migrations** run in the production build (`scripts/vercel-migrate.mjs`), before the new code goes live.
 - **Backups:** Turso point-in-time restore plus an off-site dump. `npm run db:backup` still snapshots a local database file.
 - **The same code runs as a long-running server** (`src/server.ts`) with a local database file and disk storage, for development or a VM.
 
