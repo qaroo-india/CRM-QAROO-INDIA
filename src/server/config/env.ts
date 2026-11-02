@@ -109,7 +109,17 @@ const envSchema = z
      * an ephemeral database (the automated tests). Falls back to
      * TURSO_DATABASE_URL, the name Vercel's Turso integration sets.
      */
-    DATABASE_URL: z.string().trim().min(1).default(process.env.TURSO_DATABASE_URL || './data/institute.db'),
+    DATABASE_URL: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .transform((val) => {
+        if (process.env.TURSO_DATABASE_URL && (!val || val.startsWith('.'))) {
+          return process.env.TURSO_DATABASE_URL;
+        }
+        return val ?? (process.env.TURSO_DATABASE_URL || './data/institute.db');
+      }),
     /** Auth token for a hosted Turso database (falls back to TURSO_AUTH_TOKEN). */
     DATABASE_AUTH_TOKEN: z
       .string()
