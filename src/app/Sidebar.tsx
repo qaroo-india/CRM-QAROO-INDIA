@@ -2,7 +2,7 @@ import { ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useId } from 'react';
 import { NavLink } from 'react-router';
-import { BrandMark } from '@/auth/LoginPage';
+import { BrandLogo, BrandMark } from '@/auth/LoginPage';
 import { useAuth } from '@/auth/AuthProvider';
 import { Tooltip } from '@/components/ui/Menu';
 import { cn } from '@/lib/cn';
@@ -88,12 +88,14 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
         collapsed ? 'w-[72px]' : 'w-64',
       )}
     >
-      <div className={cn('flex h-16 items-center gap-3 border-b px-4', collapsed && 'justify-center px-0')}>
-        <BrandMark className="size-8" />
-        <div className={cn('min-w-0 transition-opacity duration-200', collapsed && 'sr-only')}>
-          <p className="truncate text-sm font-semibold tracking-tight text-fg">{auth.institute?.name ?? 'Institute OS'}</p>
-          <p className="truncate text-xs text-fg-subtle">Institute OS</p>
-        </div>
+      <div className={cn('flex h-16 items-center border-b px-4', collapsed ? 'justify-center px-0' : 'justify-start')}>
+        {collapsed ? (
+          <BrandMark className="size-9" />
+        ) : (
+          <div className="flex items-center min-w-0">
+            <BrandLogo className="h-7 max-w-[190px]" />
+          </div>
+        )}
       </div>
 
       <div className={cn('flex-1 overflow-y-auto py-4', collapsed ? 'px-2' : 'px-3')}>

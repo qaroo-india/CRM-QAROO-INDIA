@@ -331,7 +331,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         <div className="w-full max-w-md rounded-card border bg-surface p-2 shadow-card">
           <ErrorState
             error={session.error}
-            title={session.error instanceof ApiRequestError && session.error.status === 429 ? 'Too many requests right now' : 'Cannot connect to Institute OS'}
+            title={session.error instanceof ApiRequestError && session.error.status === 429 ? 'Too many requests right now' : 'Cannot connect to Qaroo'}
             onRetry={() => void session.refetch()}
             retrying={session.isFetching}
           />

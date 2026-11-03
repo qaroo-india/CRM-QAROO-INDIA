@@ -30,8 +30,9 @@ export function AuthLayout({ children }: { children: ReactNode }) {
         {/* Keeps the headline readable over the scene. */}
         <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-3/4 bg-gradient-to-t from-surface-sunken via-surface-sunken/85 to-transparent" />
         <div className="relative flex items-center gap-3">
-          <BrandMark />
-          <span className="text-lg font-semibold tracking-tight text-fg">Institute OS</span>
+          <div className="rounded-xl bg-white/95 px-3 py-1.5 shadow-sm border border-white/20">
+            <img src="/logo.png" alt="QAROO India Pvt. Ltd" className="h-9 w-auto object-contain" />
+          </div>
         </div>
         <div className="relative max-w-md space-y-6">
           <h2 className="text-3xl leading-tight font-semibold tracking-tight text-fg">
@@ -57,8 +58,9 @@ export function AuthLayout({ children }: { children: ReactNode }) {
       <main className="flex flex-col px-4 py-6 sm:px-8">
         <div className="flex items-center justify-between lg:justify-end">
           <div className="flex items-center gap-2 lg:hidden">
-            <BrandMark />
-            <span className="font-semibold text-fg">Institute OS</span>
+            <div className="rounded-lg bg-white/95 px-2 py-1 shadow-sm border border-white/20">
+              <img src="/logo.png" alt="QAROO India Pvt. Ltd" className="h-7 w-auto object-contain" />
+            </div>
           </div>
           <ThemeToggle />
         </div>
@@ -81,11 +83,16 @@ export function AuthLayout({ children }: { children: ReactNode }) {
 
 export function BrandMark({ className = 'size-9' }: { className?: string }) {
   return (
-    <span className={`glow-breathe grid shrink-0 place-items-center rounded-xl border border-primary/30 bg-primary-soft ${className}`}>
-      <svg viewBox="0 0 32 32" fill="none" aria-hidden className="size-[60%]">
-        <path d="M8 22V10l8 5 8-5v12" className="stroke-primary" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-        <circle cx="16" cy="15" r="1.8" className="fill-violet" />
-      </svg>
+    <span className={`grid shrink-0 place-items-center rounded-xl overflow-hidden bg-white/95 p-1 border border-primary/20 shadow-sm ${className}`}>
+      <img src="/logo-icon.png" alt="Qaroo" className="size-full object-contain" />
     </span>
+  );
+}
+
+export function BrandLogo({ className = 'h-8' }: { className?: string }) {
+  return (
+    <div className="rounded-lg bg-white/95 px-2.5 py-1 shadow-sm border border-white/20 shrink-0">
+      <img src="/logo.png" alt="QAROO India Pvt. Ltd" className={`w-auto object-contain ${className}`} />
+    </div>
   );
 }

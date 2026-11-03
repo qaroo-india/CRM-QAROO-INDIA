@@ -3,6 +3,8 @@
  * that anyone can check at the institute's public verification page.
  */
 
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { formatDateOnly, type InstituteInfo } from '@ims/shared';
 import { createDocument, PDF_COLORS, toBuffer } from './document';
 
@@ -31,8 +33,19 @@ export async function renderCertificatePdf(data: CertificateData, institute: Ins
     doc.font(font).fontSize(size).fillColor(color).text(text, 60, y, { width: w - 120, align: 'center' });
   };
 
-  centre(institute.legalName || institute.name, 70, 'Inter-SemiBold', 18, PDF_COLORS.ink);
-  if (institute.address) centre(institute.address, 94, 'Inter', 9, PDF_COLORS.muted);
+  const logoPath = resolve('public/logo.png');
+  let nameY = 70;
+  if (existsSync(logoPath)) {
+    try {
+      doc.image(logoPath, w / 2 - 75, 42, { width: 150 });
+      nameY = 88;
+    } catch {
+      // Continue without logo if unavailable
+    }
+  }
+
+  centre(institute.legalName || institute.name, nameY, 'Inter-SemiBold', 18, PDF_COLORS.ink);
+  if (institute.address) centre(institute.address, nameY + 22, 'Inter', 9, PDF_COLORS.muted);
   centre('CERTIFICATE OF COMPLETION', 140, 'Inter-SemiBold', 26, PDF_COLORS.accent);
   centre('This is to certify that', 196, 'Inter', 12, PDF_COLORS.muted);
   centre(data.studentName, 220, 'Inter-SemiBold', 30, PDF_COLORS.ink);

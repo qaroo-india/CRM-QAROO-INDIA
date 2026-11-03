@@ -49,11 +49,14 @@ export function ReceiptDialog({ paymentId, onOpenChange }: { paymentId: string |
         ) : r ? (
           <article className="space-y-5 rounded-control border bg-white p-6 text-slate-900" aria-label="Receipt preview">
             <header className="flex flex-wrap items-start justify-between gap-4 border-b-2 border-[#2a78d6] pb-4">
-              <div>
-                <p className="text-lg font-semibold">{r.institute.legalName || r.institute.name}</p>
-                {r.institute.address && <p className="text-xs text-slate-600">{r.institute.address}</p>}
-                <p className="text-xs text-slate-600">{[r.institute.phone, r.institute.email].filter(Boolean).join(' · ')}</p>
-                {r.institute.taxId && <p className="text-xs text-slate-600">GSTIN {r.institute.taxId}</p>}
+              <div className="flex items-start gap-4">
+                <img src={r.institute.logoUrl || '/logo.png'} alt="Qaroo" className="h-10 w-auto object-contain" />
+                <div>
+                  <p className="text-lg font-semibold">{r.institute.legalName || r.institute.name}</p>
+                  {r.institute.address && <p className="text-xs text-slate-600">{r.institute.address}</p>}
+                  <p className="text-xs text-slate-600">{[r.institute.phone, r.institute.email].filter(Boolean).join(' · ')}</p>
+                  {r.institute.taxId && <p className="text-xs text-slate-600">GSTIN {r.institute.taxId}</p>}
+                </div>
               </div>
               <div className="text-right">
                 <p className="font-semibold text-[#2a78d6]">{r.payment.direction === 'refund' ? 'REFUND VOUCHER' : 'PAYMENT RECEIPT'}</p>

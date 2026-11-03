@@ -177,4 +177,4 @@ export function LoginPage() {
 }
 
 // Re-exported for existing imports (the sidebar uses it).
-export { BrandMark } from './AuthLayout';
+export { BrandMark, BrandLogo } from './AuthLayout';

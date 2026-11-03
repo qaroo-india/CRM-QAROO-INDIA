@@ -9,6 +9,7 @@
  * stamped once the final page count is known.
  */
 
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import PDFDocument from 'pdfkit';
 import { serverPath } from '../config/paths';
@@ -47,7 +48,7 @@ export function createDocument(title: string, options: { landscape?: boolean } =
     layout: options.landscape ? 'landscape' : 'portrait',
     margins: { top: 48, bottom: 56, left: 48, right: 48 },
     bufferPages: true,
-    info: { Title: title, Author: 'Institute OS', Creator: 'Institute OS' },
+    info: { Title: title, Author: 'Qaroo', Creator: 'Qaroo' },
   });
   doc.registerFont('Inter', interFonts().regular);
   doc.registerFont('Inter-SemiBold', interFonts().semiBold);
@@ -91,7 +92,18 @@ export interface InstituteHeader {
 export function drawHeader(doc: Doc, institute: InstituteHeader, title: string, meta: string[]): void {
   const left = doc.page.margins.left;
   const width = doc.page.width - left - doc.page.margins.right;
-  const top = doc.y;
+  let top = doc.y;
+
+  const logoPath = resolve('public/logo.png');
+  if (existsSync(logoPath)) {
+    try {
+      doc.image(logoPath, left, top, { width: 130 });
+      top += 38;
+      doc.y = top;
+    } catch {
+      // Continue without image if format unsupported
+    }
+  }
 
   doc.font('Inter-SemiBold').fontSize(16).fillColor(PDF_COLORS.ink).text(institute.name, left, top, { width: width * 0.6 });
   doc.font('Inter').fontSize(8.5).fillColor(PDF_COLORS.muted);

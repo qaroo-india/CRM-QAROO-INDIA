@@ -37,7 +37,7 @@ import { cn } from '@/lib/cn';
 import { formatDuration, formatElapsed, formatInZoneLong, formatLatency } from '@/utils/format';
 import { HEALTH_REFRESH_MS, useHealth } from './useHealth';
 
-const APP_NAME = import.meta.env.VITE_APP_NAME ?? 'Institute OS';
+const APP_NAME = import.meta.env.VITE_APP_NAME ?? 'Qaroo';
 
 /* ------------------------------------------------------------------ *
  * Status vocabulary
@@ -157,17 +157,8 @@ function PageHeader({ onRefresh, refreshing }: { onRefresh: () => void; refreshi
 
 function BrandMark() {
   return (
-    <span className="grid size-10 place-items-center rounded-xl border border-primary/30 bg-primary-soft shadow-glow">
-      <svg viewBox="0 0 32 32" fill="none" aria-hidden className="size-6">
-        <path
-          d="M8 22V10l8 5 8-5v12"
-          className="stroke-primary"
-          strokeWidth="2.4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <circle cx="16" cy="15" r="1.8" className="fill-violet" />
-      </svg>
+    <span className="grid size-10 place-items-center rounded-xl overflow-hidden bg-white/95 p-1 border border-primary/20 shadow-glow">
+      <img src="/logo-icon.png" alt="Qaroo" className="size-full object-contain" />
     </span>
   );
 }

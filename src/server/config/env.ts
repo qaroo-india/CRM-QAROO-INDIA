@@ -139,7 +139,7 @@ const envSchema = z
      * Institute defaults. These only SEED the institute_settings row on first
      * run; afterwards that row is authoritative and is edited in the app.
      */
-    INSTITUTE_NAME: z.string().trim().min(1).max(200).default('Course Institute'),
+    INSTITUTE_NAME: z.string().trim().min(1).max(200).default('Qaroo'),
     /** IANA zone used to decide which calendar day a transaction belongs to. */
     INSTITUTE_TIMEZONE: z
       .string()
@@ -210,7 +210,7 @@ const envSchema = z
     SMTP_SECURE: booleanish.default(false),
     SMTP_USER: z.string().optional(),
     SMTP_PASSWORD: z.string().optional(),
-    EMAIL_FROM: z.string().trim().default('Institute OS <reports@institute.local>'),
+    EMAIL_FROM: z.string().trim().default('Qaroo <reports@qaroo.in>'),
     /** Public URL of the web app, used for links inside emails. */
     APP_URL: z.url().default(vercelProductionUrl ?? 'http://localhost:5173'),
 

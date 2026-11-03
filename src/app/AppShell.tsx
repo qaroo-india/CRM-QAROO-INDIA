@@ -101,7 +101,7 @@ export function AppShell() {
       </div>
 
       <DialogRoot open={mobileOpen} onOpenChange={setMobileOpen}>
-        <DrawerContent side="left" width="md" title={auth.institute?.name ?? 'Institute OS'} description="Navigation" className="sm:max-w-xs">
+        <DrawerContent side="left" width="md" title={auth.institute?.name ?? 'Qaroo'} description="Navigation" className="sm:max-w-xs">
           <NavSections sections={visibleSections(auth.viewer)} onNavigate={() => setMobileOpen(false)} />
         </DrawerContent>
       </DialogRoot>
