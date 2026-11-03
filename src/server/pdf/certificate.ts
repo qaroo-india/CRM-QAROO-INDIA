@@ -3,10 +3,8 @@
  * that anyone can check at the institute's public verification page.
  */
 
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { formatDateOnly, type InstituteInfo } from '@ims/shared';
-import { createDocument, PDF_COLORS, toBuffer } from './document';
+import { createDocument, getLogoBuffer, PDF_COLORS, toBuffer } from './document';
 
 export interface CertificateData {
   referenceNumber: string;
@@ -33,11 +31,11 @@ export async function renderCertificatePdf(data: CertificateData, institute: Ins
     doc.font(font).fontSize(size).fillColor(color).text(text, 60, y, { width: w - 120, align: 'center' });
   };
 
-  const logoPath = resolve('public/logo.png');
+  const logo = getLogoBuffer();
   let nameY = 70;
-  if (existsSync(logoPath)) {
+  if (logo) {
     try {
-      doc.image(logoPath, w / 2 - 75, 42, { width: 150 });
+      doc.image(logo, w / 2 - 75, 42, { width: 150 });
       nameY = 88;
     } catch {
       // Continue without logo if unavailable

@@ -72,6 +72,11 @@ export function AuthLayout({ children }: { children: ReactNode }) {
 
         <div className="flex flex-1 items-center justify-center py-10">
           <div className="glass holo holo-live w-full max-w-md rounded-card border p-6 sm:p-8">
+            <div className="mb-4 flex justify-center">
+              <div className="rounded-xl bg-white/95 px-3.5 py-1.5 shadow-sm border border-white/20">
+                <img src="/logo.png" alt="Qaroo India Private Limited" className="h-9 w-auto object-contain" />
+              </div>
+            </div>
             <div className="stagger space-y-7">{children}</div>
           </div>
         </div>

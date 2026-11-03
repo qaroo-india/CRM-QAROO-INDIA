@@ -102,6 +102,11 @@ export function AppShell() {
 
       <DialogRoot open={mobileOpen} onOpenChange={setMobileOpen}>
         <DrawerContent side="left" width="md" title={auth.institute?.name ?? 'Qaroo India Private Limited'} description="Navigation" className="sm:max-w-xs">
+          <div className="mb-4">
+            <div className="inline-block rounded-xl bg-white/95 px-3 py-1.5 shadow-sm border border-white/20">
+              <img src="/logo.png" alt="Qaroo India Private Limited" className="h-7.5 w-auto object-contain" />
+            </div>
+          </div>
           <NavSections sections={visibleSections(auth.viewer)} onNavigate={() => setMobileOpen(false)} />
         </DrawerContent>
       </DialogRoot>

@@ -54,9 +54,14 @@ export function Topbar({ onOpenMobileNav, onOpenPalette }: TopbarProps) {
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-2 border-b bg-canvas/85 px-4 backdrop-blur-md sm:px-6">
-      <Button variant="ghost" size="icon" className="lg:hidden" onClick={onOpenMobileNav} aria-label="Open navigation">
-        <MenuIcon aria-hidden className="size-5" />
-      </Button>
+      <div className="flex items-center gap-2 lg:hidden">
+        <Button variant="ghost" size="icon" onClick={onOpenMobileNav} aria-label="Open navigation">
+          <MenuIcon aria-hidden className="size-5" />
+        </Button>
+        <div className="rounded-lg bg-white/95 px-2 py-0.5 shadow-sm border border-white/20 shrink-0">
+          <img src="/logo.png" alt="Qaroo India Private Limited" className="h-6 w-auto object-contain" />
+        </div>
+      </div>
 
       {/* Global search / command palette trigger */}
       <button

@@ -35,9 +35,11 @@ for (const file of ['server.js', 'server.js.map', 'vercel.js', 'vercel.js.map', 
 // and the migration journal for the health check (src/server/db/migrator.ts).
 const font = (file) => readFileSync(new URL(`../assets/fonts/${file}`, import.meta.url)).toString('base64');
 const journal = JSON.parse(readFileSync(new URL('../drizzle/meta/_journal.json', import.meta.url), 'utf8'));
+const logo = readFileSync(new URL('../public/logo.png', import.meta.url)).toString('base64');
 const define = {
   __EMBEDDED_FONTS__: JSON.stringify({ regular: font('Inter_400Regular.ttf'), semiBold: font('Inter_600SemiBold.ttf') }),
   __EMBEDDED_JOURNAL__: JSON.stringify(journal.entries.map(({ idx, tag, when }) => ({ idx, tag, when }))),
+  __EMBEDDED_LOGO__: JSON.stringify(logo),
 };
 
 const result = await build({

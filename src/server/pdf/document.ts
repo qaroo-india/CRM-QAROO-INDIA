@@ -9,7 +9,7 @@
  * stamped once the final page count is known.
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import PDFDocument from 'pdfkit';
 import { serverPath } from '../config/paths';
@@ -18,8 +18,26 @@ const FONT_DIR = serverPath('assets', 'fonts');
 
 /** Base64 font files, set by scripts/build.mjs; undefined when running from source. */
 declare const __EMBEDDED_FONTS__: { regular: string; semiBold: string } | undefined;
+declare const __EMBEDDED_LOGO__: string | undefined;
 
 let fonts: { regular: Buffer | string; semiBold: Buffer | string } | null = null;
+let logoBuf: Buffer | null = null;
+
+export function getLogoBuffer(): Buffer | null {
+  if (logoBuf) return logoBuf;
+  if (typeof __EMBEDDED_LOGO__ !== 'undefined' && __EMBEDDED_LOGO__) {
+    logoBuf = Buffer.from(__EMBEDDED_LOGO__, 'base64');
+    return logoBuf;
+  }
+  const logoPath = resolve('public/logo.png');
+  if (existsSync(logoPath)) {
+    try {
+      logoBuf = readFileSync(logoPath);
+      return logoBuf;
+    } catch {}
+  }
+  return null;
+}
 
 function interFonts() {
   fonts ??=
@@ -94,10 +112,10 @@ export function drawHeader(doc: Doc, institute: InstituteHeader, title: string, 
   const width = doc.page.width - left - doc.page.margins.right;
   let top = doc.y;
 
-  const logoPath = resolve('public/logo.png');
-  if (existsSync(logoPath)) {
+  const logo = getLogoBuffer();
+  if (logo) {
     try {
-      doc.image(logoPath, left, top, { width: 130 });
+      doc.image(logo, left, top, { width: 130 });
       top += 38;
       doc.y = top;
     } catch {
