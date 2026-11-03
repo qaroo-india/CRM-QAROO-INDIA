@@ -38,7 +38,7 @@ export async function seedInstituteSettings(database: Db | Tx): Promise<SeedResu
     .values({
       id: INSTITUTE_SETTINGS_ID,
       name: env.INSTITUTE_NAME,
-      legalName: 'QAROO India Pvt. Ltd',
+      legalName: 'Qaroo India Private Limited',
       logoUrl: '/logo.png',
       timezone: env.INSTITUTE_TIMEZONE,
       currency: env.INSTITUTE_CURRENCY,

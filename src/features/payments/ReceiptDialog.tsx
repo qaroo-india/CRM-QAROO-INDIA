@@ -50,7 +50,7 @@ export function ReceiptDialog({ paymentId, onOpenChange }: { paymentId: string |
           <article className="space-y-5 rounded-control border bg-white p-6 text-slate-900" aria-label="Receipt preview">
             <header className="flex flex-wrap items-start justify-between gap-4 border-b-2 border-[#2a78d6] pb-4">
               <div className="flex items-start gap-4">
-                <img src={r.institute.logoUrl || '/logo.png'} alt="Qaroo" className="h-10 w-auto object-contain" />
+                <img src={r.institute.logoUrl || '/logo.png'} alt="Qaroo India Private Limited" className="h-10 w-auto object-contain" />
                 <div>
                   <p className="text-lg font-semibold">{r.institute.legalName || r.institute.name}</p>
                   {r.institute.address && <p className="text-xs text-slate-600">{r.institute.address}</p>}

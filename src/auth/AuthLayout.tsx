@@ -29,9 +29,13 @@ export function AuthLayout({ children }: { children: ReactNode }) {
         </Suspense>
         {/* Keeps the headline readable over the scene. */}
         <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-3/4 bg-gradient-to-t from-surface-sunken via-surface-sunken/85 to-transparent" />
-        <div className="relative flex items-center gap-3">
+        <div className="relative flex items-center gap-3.5">
           <div className="rounded-xl bg-white/95 px-3 py-1.5 shadow-sm border border-white/20">
-            <img src="/logo.png" alt="QAROO India Pvt. Ltd" className="h-9 w-auto object-contain" />
+            <img src="/logo.png" alt="Qaroo India Private Limited" className="h-10 w-auto object-contain" />
+          </div>
+          <div>
+            <span className="text-lg font-bold tracking-tight text-fg block">Qaroo India Private Limited</span>
+            <span className="text-xs text-fg-subtle">Operations &amp; Intelligence Platform</span>
           </div>
         </div>
         <div className="relative max-w-md space-y-6">
@@ -57,10 +61,11 @@ export function AuthLayout({ children }: { children: ReactNode }) {
 
       <main className="flex flex-col px-4 py-6 sm:px-8">
         <div className="flex items-center justify-between lg:justify-end">
-          <div className="flex items-center gap-2 lg:hidden">
+          <div className="flex items-center gap-2.5 lg:hidden">
             <div className="rounded-lg bg-white/95 px-2 py-1 shadow-sm border border-white/20">
-              <img src="/logo.png" alt="QAROO India Pvt. Ltd" className="h-7 w-auto object-contain" />
+              <img src="/logo.png" alt="Qaroo India Private Limited" className="h-7 w-auto object-contain" />
             </div>
+            <span className="font-bold text-fg text-sm">Qaroo India Private Limited</span>
           </div>
           <ThemeToggle />
         </div>
@@ -84,7 +89,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
 export function BrandMark({ className = 'size-9' }: { className?: string }) {
   return (
     <span className={`grid shrink-0 place-items-center rounded-xl overflow-hidden bg-white/95 p-1 border border-primary/20 shadow-sm ${className}`}>
-      <img src="/logo-icon.png" alt="Qaroo" className="size-full object-contain" />
+      <img src="/logo-icon.png" alt="Qaroo India Private Limited" className="size-full object-contain" />
     </span>
   );
 }
@@ -92,7 +97,7 @@ export function BrandMark({ className = 'size-9' }: { className?: string }) {
 export function BrandLogo({ className = 'h-8' }: { className?: string }) {
   return (
     <div className="rounded-lg bg-white/95 px-2.5 py-1 shadow-sm border border-white/20 shrink-0">
-      <img src="/logo.png" alt="QAROO India Pvt. Ltd" className={`w-auto object-contain ${className}`} />
+      <img src="/logo.png" alt="Qaroo India Private Limited" className={`w-auto object-contain ${className}`} />
     </div>
   );
 }

@@ -48,7 +48,7 @@ export function createDocument(title: string, options: { landscape?: boolean } =
     layout: options.landscape ? 'landscape' : 'portrait',
     margins: { top: 48, bottom: 56, left: 48, right: 48 },
     bufferPages: true,
-    info: { Title: title, Author: 'Qaroo', Creator: 'Qaroo' },
+    info: { Title: title, Author: 'Qaroo India Private Limited', Creator: 'Qaroo India Private Limited' },
   });
   doc.registerFont('Inter', interFonts().regular);
   doc.registerFont('Inter-SemiBold', interFonts().semiBold);
