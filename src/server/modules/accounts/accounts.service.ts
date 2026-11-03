@@ -106,6 +106,9 @@ export async function requestStudentActivation(raw: unknown, meta: ClientMeta): 
   const student = await db.select().from(students).where(sql`lower(${students.email}) = ${email}`).get();
   if (!student || PORTAL_BLOCKED_STUDENT_STATUSES.includes(student.status)) return;
 
+  const hasAdmission = await db.select({ id: admissions.id }).from(admissions).where(eq(admissions.studentId, student.id)).limit(1).get();
+  if (!hasAdmission) return;
+
   if (student.userId) {
     const existing = await db.select().from(users).where(eq(users.id, student.userId)).get();
     if (!existing) return;
@@ -195,7 +198,7 @@ async function grantLogin(
     if (existing) {
       await db.transaction(async (tx) => {
         await tx.update(users)
-          .set({ isActive: true, passwordHash, mustChangePassword: false, email, failedLoginCount: 0, lockedUntil: null, tokenVersion: sql`${users.tokenVersion} + 1` })
+          .set({ isActive: true, passwordHash, mustChangePassword: true, email, failedLoginCount: 0, lockedUntil: null, tokenVersion: sql`${users.tokenVersion} + 1` })
           .where(eq(users.id, existing.id))
           .run();
         await revokeAllForUser(tx, existing.id);
@@ -219,7 +222,7 @@ async function grantLogin(
         role: 'staff',
         accountType: kind,
         permissions: kind === 'faculty' ? [...DEFAULT_FACULTY_PERMISSIONS] : [],
-        mustChangePassword: false,
+        mustChangePassword: true,
         createdById: ctx.actorId || null,
       })
       .returning()
