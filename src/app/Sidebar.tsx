@@ -88,12 +88,20 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
         collapsed ? 'w-[72px]' : 'w-64',
       )}
     >
-      <div className={cn('flex h-16 items-center border-b px-4', collapsed ? 'justify-center px-0' : 'justify-start')}>
+      <div className={cn('flex h-16 items-center border-b px-3.5', collapsed ? 'justify-center px-0' : 'justify-start gap-2.5')}>
         {collapsed ? (
           <BrandMark className="size-9" />
         ) : (
-          <div className="flex items-center min-w-0">
-            <BrandLogo className="h-7 max-w-[190px]" />
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="rounded-lg bg-white/95 px-2 py-1 shadow-sm border border-white/20 shrink-0">
+              <img src="/logo.png" alt="Qaroo India Private Limited" className="h-7 w-auto object-contain" />
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-xs font-bold tracking-tight text-fg" title={auth.institute?.name ?? 'Qaroo India Private Limited'}>
+                {auth.institute?.name ?? 'Qaroo India Private Limited'}
+              </p>
+              <p className="truncate text-[10px] text-fg-subtle">Management Portal</p>
+            </div>
           </div>
         )}
       </div>
