@@ -122,7 +122,7 @@ export async function createUser(ctx: RequestContext, raw: CreateUserInput): Pro
         jobRole,
         permissions,
         passwordHash,
-        mustChangePassword: true,
+        mustChangePassword: false,
         createdById: ctx.actorId || null,
         ...profileColumns(input),
       })
@@ -232,7 +232,7 @@ export async function resetPassword(ctx: RequestContext, id: string, temporaryPa
       .update(users)
       .set({
         passwordHash,
-        mustChangePassword: true,
+        mustChangePassword: false,
         failedLoginCount: 0,
         lockedUntil: null,
         tokenVersion: sql`${users.tokenVersion} + 1`,

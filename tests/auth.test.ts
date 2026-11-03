@@ -213,14 +213,12 @@ describe('sessions', () => {
   });
 });
 
-describe('forced password change', () => {
-  it('blocks everything except /auth until the seeded owner sets a new password', async () => {
+describe('password change', () => {
+  it('allows the owner to sign in immediately and change their password in settings', async () => {
     const seeded = (await db.select().from(users).where(eq(users.email, env.OWNER_EMAIL)).get())!;
-    expect(seeded.mustChangePassword).toBe(true);
     const client = await signIn(app, seeded, env.OWNER_INITIAL_PASSWORD);
 
-    const blocked = await client.get('/api/v1/users').expect(403);
-    expect(blocked.body.error.code).toBe('PASSWORD_CHANGE_REQUIRED');
+    await client.get('/api/v1/users').expect(200);
     await client.get('/api/v1/auth/me').expect(200);
 
     const weak = await client
@@ -264,7 +262,7 @@ describe('role and permission restrictions', () => {
         temporaryPassword: 'Temporary-Pass-1',
       })
       .expect(201);
-    expect(res.body.data).toMatchObject({ role: 'staff', mustChangePassword: true });
+    expect(res.body.data).toMatchObject({ role: 'staff', mustChangePassword: false });
   });
 
   it('blocks privilege escalation through user management', async () => {
@@ -318,13 +316,12 @@ describe('role and permission restrictions', () => {
     await peerClient.get('/api/v1/auth/me').expect(401);
   });
 
-  it('issues a temporary password that must be changed', async () => {
+  it('issues a temporary password that allows access immediately', async () => {
     const owner = await ownerClient(app);
     const staff = await createTestUser();
     await owner.post(`/api/v1/users/${staff.id}/reset-password`, { temporaryPassword: 'Temp-Reset-Pass-7' }).expect(200);
     const client = await signIn(app, staff, 'Temp-Reset-Pass-7');
-    const res = await client.get('/api/v1/users/options').expect(403);
-    expect(res.body.error.code).toBe('PASSWORD_CHANGE_REQUIRED');
+    await client.get('/api/v1/users/options').expect(200);
 
     const entries = await db.select().from(auditLogs).where(eq(auditLogs.entityId, staff.id)).all();
     expect(entries.some((a) => a.action === 'password_change')).toBe(true);

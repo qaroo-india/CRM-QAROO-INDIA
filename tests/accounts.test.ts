@@ -150,7 +150,7 @@ describe('student portal logins', () => {
     await owner.post(`/api/v1/portal-access/students/${studentId}`, { temporaryPassword: 'Temp-Pass-2026' }).expect(409);
 
     const first = await login('ravi.portal@example.com', 'Temp-Pass-2026');
-    expect(first.res.body.data.user.mustChangePassword).toBe(true);
+    expect(first.res.body.data.user.mustChangePassword).toBe(false);
 
     await owner.post(`/api/v1/portal-access/${granted.userId}/revoke`).expect(200);
     const blocked = await login('ravi.portal@example.com', 'Temp-Pass-2026');

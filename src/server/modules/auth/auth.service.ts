@@ -144,7 +144,7 @@ export async function login(input: LoginInput, meta: ClientMeta): Promise<Issued
   return await db.transaction(async (tx) => {
     const updated = await tx
       .update(users)
-      .set({ failedLoginCount: 0, lockedUntil: null, lastLoginAt: new Date() })
+      .set({ failedLoginCount: 0, lockedUntil: null, lastLoginAt: new Date(), mustChangePassword: false })
       .where(eq(users.id, user.id))
       .returning()
       .get();

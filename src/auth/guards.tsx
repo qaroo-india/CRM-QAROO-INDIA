@@ -5,9 +5,8 @@ import { Navigate, useLocation } from 'react-router';
 import { firstAllowedPath } from '@/app/navigation';
 import { EmptyState, LoadingBlock } from '@/components/ui/Feedback';
 import { useAuth } from './AuthProvider';
-import { ChangePasswordPage } from './ChangePasswordPage';
 
-/** Signed-in users only; a temporary password must be replaced first. */
+/** Signed-in users only. */
 export function RequireAuth({ children }: { children: ReactNode }) {
   const auth = useAuth();
   const location = useLocation();
@@ -17,7 +16,6 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     const next = `${location.pathname}${location.search}`;
     return <Navigate to={next === '/' ? '/login' : `/login?next=${encodeURIComponent(next)}`} replace />;
   }
-  if (auth.user?.mustChangePassword) return <ChangePasswordPage />;
   return <>{children}</>;
 }
 

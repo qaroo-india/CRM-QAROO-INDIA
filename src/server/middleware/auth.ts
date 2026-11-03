@@ -44,10 +44,6 @@ export const authenticate: RequestHandler = async (req, _res, next) => {
     throw new ApiError(401, 'SESSION_REVOKED', 'Your session has ended. Please sign in again.');
   }
 
-  if (user.mustChangePassword && !PASSWORD_CHANGE_ALLOWED.some((p) => req.originalUrl.startsWith(p))) {
-    throw new ApiError(403, 'PASSWORD_CHANGE_REQUIRED', 'Please set a new password to continue.');
-  }
-
   const links = await accountLinks(user);
   req.auth = { user: toPublicUser(user), permissions: effectivePermissions(user), accountType: user.accountType, ...links };
   next();
